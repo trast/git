@@ -2097,6 +2097,8 @@ int prepare_revision_walk(struct rev_info *revs)
 			return -1;
 	if (revs->topo_order)
 		sort_in_topological_order(&revs->commits, revs->lifo);
+	if (revs->full_line_diff)
+		revs->dense = 0;
 	if (revs->simplify_merges)
 		simplify_merges(revs);
 	if (revs->children.name)

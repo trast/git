@@ -38,11 +38,6 @@ static const char * const builtin_log_usage[] = {
 	NULL
 };
 
-static const char *log_opt_usage[] = {
-	builtin_log_usage,
-	NULL
-};
-
 struct line_opt_callback_data {
 	struct rev_info *rev;
 	const char *prefix;
@@ -137,6 +132,7 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 	struct userformat_want w;
 	int quiet = 0, source = 0;
 	static struct line_opt_callback_data line_cb = {0};
+	static int full_line_diff;
 
 	const struct option builtin_log_options[] = {
 		OPT_BOOLEAN(0, "quiet", &quiet, "suppress diff output"),
@@ -146,6 +142,9 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 		OPT_CALLBACK('L', NULL, &line_cb, "n,m:file",
 			     "Process line range n,m in file, counting from 1",
 			     log_line_range_callback),
+		OPT_BOOLEAN(0, "full-line-diff", &full_line_diff,
+			    "Always print the interesting range even if the \
+			    current commit does not change any line of it"),
 		OPT_END()
 	};
 
@@ -201,8 +200,10 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 	}
 
 	/* Test whether line level history is asked for */
-	if (rev->line_level_traverse)
+	if (rev->line_level_traverse) {
 		line_log_init(rev, line_cb.ranges);
+		rev->full_line_diff = full_line_diff;
+	}
 
 	setup_pager();
 }

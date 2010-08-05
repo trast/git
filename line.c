@@ -1365,10 +1365,18 @@ static void diff_flush_filepair(struct rev_info *rev, struct diff_line_range *ra
 	/*
 	 * the ranges that touch no different file, in this case
 	 * the line number will not change, and of course we have
-	 * no sensible rang->pair since there is no diff run.
+	 * no sensible range->pair since there is no diff run.
 	 */
-	if (!one)
+	if (!one) {
+		if (rev->full_line_diff) {
+			chunk.two = two->data;
+			chunk.two_end = (const char *)two->data + two->size;
+			chunk.ltwo = 1;
+			chunk.range = range;
+			diff_flush_chunks(&rev->diffopt, &chunk);
+		}
 		return;
+	}
 
 	if (range->status == DIFF_STATUS_DELETED)
 		die("We are following an nonexistent file, interesting!");
@@ -1490,7 +1498,8 @@ static void line_log_flush(struct rev_info *rev, struct commit *c)
 	struct strbuf *msgbuf;
 
 	if (!range || !(c->object.flags & NONTRIVIAL_MERGE ||
-			c->object.flags & NEED_PRINT))
+			c->object.flags & NEED_PRINT ||
+			rev->full_line_diff))
 		return;
 
 	if (rev->graph)
@@ -1511,7 +1520,7 @@ static void line_log_flush(struct rev_info *rev, struct commit *c)
 		flush_nontrivial_merge(rev, nontrivial);
 	else {
 		while (range) {
-			if (range->diff)
+			if (range->diff || (range->nr && rev->full_line_diff))
 				diff_flush_filepair(rev, range);
 			range = range->next;
 		}
@@ -1568,7 +1577,7 @@ int line_log_walk(struct rev_info *rev)
 	/* Clear the flags */
 	while (list) {
 		list->item->object.flags &= ~(RANGE_UPDATE | NONTRIVIAL_MERGE |
-						NEED_PRINT | EVIL_MERGE);
+				NEED_PRINT | EVIL_MERGE);
 		list = list->next;
 	}
 
@@ -1588,7 +1597,8 @@ int line_log_walk(struct rev_info *rev)
 		}
 
 		if (commit->object.flags & NEED_PRINT ||
-		    commit->object.flags & NONTRIVIAL_MERGE)
+		    commit->object.flags & NONTRIVIAL_MERGE ||
+		    rev->full_line_diff)
 			line_log_flush(rev, commit);
 
 		clear_commit_line_range(rev, commit);
