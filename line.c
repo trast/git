@@ -15,6 +15,14 @@ const char *parse_loc(const char *spec, nth_line_fn_t nth_line,
 	regmatch_t match[1];
 
 	/*
+	 * $ is a synonym for "the end of the file".
+	 */
+	if (spec[0] == '$') {
+		*ret = lines;
+		return spec + 1;
+	}
+
+	/*
 	 * Allow "-L <something>,+20" to mean starting at <something>
 	 * for 20 lines, or "-L <something>,-5" for 5 lines ending at
 	 * <something>.

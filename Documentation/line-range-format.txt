@@ -16,3 +16,9 @@ starting at the line given by <start>.
 This is only valid for <end> and will specify a number
 of lines before or after the line given by <start>.
 +
+
+- `$`
++
+A literal dollar sign can be used as a shorthand for the last line in
+the file.
++
