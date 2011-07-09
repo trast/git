@@ -8,6 +8,7 @@
 #include "notes.h"
 #include "gpg-interface.h"
 #include "mergesort.h"
+#include "metadata-cache.h"
 
 int save_commit_buffer = 1;
 
@@ -1225,4 +1226,36 @@ struct commit_list **commit_list_append(struct commit *commit,
 	*next = new;
 	new->next = NULL;
 	return &new->next;
+}
+
+static unsigned long commit_generation_recurse(struct commit *c)
+{
+	struct commit_list *p;
+	uint32_t r;
+
+	if (generations_cache_get(&c->object, &r))
+		return r;
+
+	if (parse_commit(c) < 0)
+		die("unable to parse commit: %s", sha1_to_hex(c->object.sha1));
+
+	if (!c->parents)
+		return 0;
+
+	r = 0;
+	for (p = c->parents; p; p = p->next) {
+		unsigned long pgen = commit_generation_recurse(p->item);
+		if (pgen > r)
+			r = pgen;
+	}
+	r++;
+
+	generations_cache_set(&c->object, r);
+	return r;
+}
+
+unsigned long commit_generation(const struct commit *commit)
+{
+	/* drop const because we may call parse_commit */
+	return commit_generation_recurse((struct commit *)commit);
 }

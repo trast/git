@@ -243,4 +243,8 @@ int map_persist_flush_##name(struct map_persist_##name *m, int fd) \
 }
 
 IMPLEMENT_MAP(object_uint32, obj_equal, hash_obj)
+IMPLEMENT_MAP_PERSIST(object_uint32,
+		      20, obj_to_disk,
+		      4, uint32_to_disk, disk_to_uint32,
+		      disk_lookup_sha1)
 IMPLEMENT_MAP(object_void, obj_equal, hash_obj)

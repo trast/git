@@ -124,3 +124,5 @@ int name##_cache_set(map_ktype_##map key, map_vtype_##map value) \
 	init_##name##_cache(); \
 	return map_persist_set_##map(&name##_map, key, value); \
 }
+
+IMPLEMENT_METADATA_CACHE(generations, object_uint32, NULL)

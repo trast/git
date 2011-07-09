@@ -223,4 +223,7 @@ struct commit *get_merge_parent(const char *name);
 
 extern int parse_signed_commit(const unsigned char *sha1,
 			       struct strbuf *message, struct strbuf *signature);
+
+unsigned long commit_generation(const struct commit *commit);
+
 #endif /* COMMIT_H */

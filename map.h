@@ -41,6 +41,7 @@ extern void map_persist_attach_##name(struct map_persist_##name *, \
 extern int map_persist_flush_##name(struct map_persist_##name *, int fd);
 
 DECLARE_MAP(object_uint32, const struct object *, uint32_t)
+DECLARE_MAP_PERSIST(object_uint32)
 DECLARE_MAP(object_void, const struct object *, void *)
 
 #endif /* MAP_H */
