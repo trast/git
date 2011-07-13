@@ -250,6 +250,42 @@ int unregister_shallow(const unsigned char *sha1)
 	return 0;
 }
 
+static void commit_graft_checksum(git_SHA_CTX *ctx)
+{
+	int i;
+
+	prepare_commit_graft();
+
+	for (i = 0; i < commit_graft_nr; i++) {
+		const struct commit_graft *c = commit_graft[i];
+		git_SHA1_Update(ctx, c->sha1, 20);
+		if (c->nr_parent < 0)
+			git_SHA1_Update(ctx, "shallow", 7);
+		else {
+			uint32_t v = htonl(c->nr_parent);
+			int j;
+			git_SHA1_Update(ctx, &v, sizeof(v));
+			for (j = 0; j < c->nr_parent; j++)
+				git_SHA1_Update(ctx, c->parent[j], 20);
+		}
+	}
+}
+
+void commit_graph_checksum(unsigned char out[20])
+{
+	git_SHA_CTX ctx;
+
+	git_SHA1_Init(&ctx);
+
+	git_SHA1_Update(&ctx, "grafts", 6);
+	commit_graft_checksum(&ctx);
+
+	git_SHA1_Update(&ctx, "replace", 7);
+	replace_objects_checksum(&ctx);
+
+	git_SHA1_Final(out, &ctx);
+}
+
 int parse_commit_buffer(struct commit *item, const void *buffer, unsigned long size)
 {
 	const char *tail = buffer;

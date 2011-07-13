@@ -226,4 +226,6 @@ extern int parse_signed_commit(const unsigned char *sha1,
 
 unsigned long commit_generation(const struct commit *commit);
 
+void commit_graph_checksum(unsigned char out[20]);
+
 #endif /* COMMIT_H */

@@ -1,6 +1,7 @@
 #include "cache.h"
 #include "metadata-cache.h"
 #include "map.h"
+#include "commit.h"
 
 static const char *metadata_cache_path(const char *name,
 				       void (*validity)(unsigned char [20]))
@@ -125,4 +126,4 @@ int name##_cache_set(map_ktype_##map key, map_vtype_##map value) \
 	return map_persist_set_##map(&name##_map, key, value); \
 }
 
-IMPLEMENT_METADATA_CACHE(generations, object_uint32, NULL)
+IMPLEMENT_METADATA_CACHE(generations, object_uint32, commit_graph_checksum)
