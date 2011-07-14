@@ -23,4 +23,6 @@ extern int map_set_##name(struct map_##name *, \
 			  map_vtype_##name value, \
 			  map_vtype_##name *old);
 
+DECLARE_MAP(object_uint32, const struct object *, uint32_t)
+
 #endif /* MAP_H */

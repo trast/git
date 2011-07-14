@@ -149,7 +149,7 @@ void dump_foos(void)
 	printf("there are %u foos:\n", foos.nr);
 
 	for (i = 0; i < foos.size; i++) {
-		struct map_entry_object_int *e = foos.hash[i];
+		struct map_entry_object_int *e = foos.hash + i;
 
 		if (!e->used)
 			continue;
