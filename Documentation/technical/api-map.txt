@@ -1,0 +1,160 @@
+map API
+=======
+
+The map API is a system for efficiently mapping keys to values in memory. Items
+are stored in a hash table for fast lookup; storage efficiency is achieved
+through macro-based code generation, which lets the compiler store values
+compactly in memory.
+
+Due to the code generation, there are two different facets of this API: macros
+to build new types of mappings (i.e., generate new function and struct
+definitions), and generated functions to store and retrieve values from a
+particular mapping.
+
+
+Related APIs
+------------
+
+The hash API provides a similar key/value store. However, it does not deal with
+hash collisions itself, leaving the caller to handle bucket management (but
+this is a feature if you are interested in using the collisions as part of an
+algorithm).  Furthermore, it can store only void pointers, making storage of
+small values inefficient and cumbersome.
+
+The decorate API provides a similar interface to map, but is restricted to
+using "struct object" as the key, and a void pointer as the value.
+
+
+Defining New Map Types
+----------------------
+
+A map type is uniquely defined by the pair of its key and value types. To
+define a new type, you must use the `DECLARE_MAP` macro in `map.h`, and the
+`IMPLEMENT_MAP` macro in `map.c`. Their usage is described below:
+
+`DECLARE_MAP`::
+
+	Declare a new type of map, including the struct definition and
+	declarations of access functions. The `name` parameter should describe
+	the types (e.g., `object_uint32` to map objects to 32-bit integers).
+	The `ktype` parameter specifies the C type of the key (e.g.,
+	`struct object *`) and the `vtype` parameter specifies the C type of
+	the value (e.g., `uint32_t`).
+
+`IMPLEMENT_MAP`::
+
+	Create function definitions for a map type. The `name` parameter should
+	match one given to `DECLARE_MAP`. The `equal_fun` parameter should
+	specify a function that, when given two items of type `ktype`, will
+	return a non-zero value if they are equal.  The `hash_fun` parameter
+	should specify a function that will convert an object of type `ktype`
+	into an integer hash value.
+
+Several convenience functions are provided to fill in macro parameters:
+
+`hash_obj`::
+
+	Suitable for `hash_fun` when the key type is `struct object *`.
+
+`obj_equal`::
+
+	Suitable for `equal_fun` when the key type is `struct object *`.
+
+
+Data Structures
+---------------
+
+Each defined map type will have its own structure (e.g., `map_object_uint32`).
+
+`struct map_NAME`::
+
+	A single map object. This struct should be initialized to all-zeroes.
+	The `nr` field specifies the number of items stored in the map. The
+	`size` field specifies the number of hash buckets allocated. The `hash`
+	field stores the actual data. Callers should never need to look at
+	these fields unless they are enumerating all elements of the map (see
+	the example below).
+
+`struct map_entry_NAME`::
+
+	A single entry in the hash, which may or may not contain a value. If
+	the `used` field is false, the `key` and `value` fields should not be
+	examined at all. Otherwise, the `key` and `value` fields represent a
+	single mapped pair.  You should never need to use this type directly,
+	unless you are enumerating all elements of a map.
+
+
+Functions
+---------
+
+Each defined map type will have its own set of access function (e.g.,
+`map_get_object_uint32`).
+
+`map_get_NAME(struct map_NAME *, const ktype key, vtype *value)`::
+
+	Retrieve the value corresponding to `key`, returning it via the pointer
+	`value`. Returns 1 if an item was found, zero otherwise (in which case
+	`value` is unchanged).
+
+`map_set_NAME(struct map_NAME *, const ktype key, vtype value, vtype *old)`::
+
+	Insert a mapping from `key` to `value`. If a mapping for `key` already
+	existed, the previous value is copied into `old` (if it is non-NULL)
+	and the function returns 1. Otherwise, the function returns 0.
+
+
+Examples
+--------
+
+Create a new mapping type of objects to integers:
+
+-------------------------------------------------------------------
+/* in map.h */
+DECLARE_MAP(object_int, struct object *, int)
+
+/* in map.c */
+IMPLEMENT_MAP(object_int, struct object *, int, obj_equal, hash_obj)
+-------------------------------------------------------------------
+
+Store and retrieve integers by object key:
+
+-------------------------------------------------------------------
+static struct map_object_int foos;
+
+void store_foo(const struct commit *c, int foo)
+{
+	int old;
+	if (map_set_object_uint32(&foos, &c->object, foo, &old))
+		printf("old value was %d\n", old);
+}
+
+void print_foo(const struct commit *c)
+{
+	int v;
+
+	if (map_get_object_int(&foos, &c->object, &v))
+		printf("foo: %d\n", v);
+	else
+		printf("no such foo\n");
+}
+-------------------------------------------------------------------
+
+Iterate over all map entries:
+
+-------------------------------------------------------------------
+void dump_foos(void)
+{
+	int i;
+
+	printf("there are %u foos:\n", foos.nr);
+
+	for (i = 0; i < foos.size; i++) {
+		struct map_entry_object_int *e = foos.hash[i];
+
+		if (!e->used)
+			continue;
+
+		printf("%s -> %d\n", sha1_to_hex(e->key->sha1), e->value);
+	}
+}
+-------------------------------------------------------------------
