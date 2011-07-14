@@ -86,3 +86,4 @@ int map_get_##name(struct map_##name *m, \
 }
 
 IMPLEMENT_MAP(object_uint32, obj_equal, hash_obj)
+IMPLEMENT_MAP(object_void, obj_equal, hash_obj)

@@ -1,6 +1,40 @@
 decorate API
 ============
 
-Talk about <decorate.h>
+The decorate API is a system for efficiently mapping objects to values
+in memory. It is slightly slower than an actual member of an object
+struct (because it incurs a hash lookup), but it uses less memory when
+the mapping is not in use, or when the number of decorated objects is
+small compared to the total number of objects.
 
-(Linus)
+The decorate API is a special form of the `map` link:api-map.html[map
+API]. It has slightly simpler calling conventions, but only use objects
+as keys, and can only store void pointers as values.
+
+
+Data Structures
+---------------
+
+`struct decoration`::
+
+	This structure represents a single mapping of objects to values.
+	The `name` field is not used by the decorate API itself, but may
+	be used by calling code. The `map` field represents the actual
+	mapping of objects to void pointers (see the
+	link:api-map.html[map API] for details).
+
+
+Functions
+---------
+
+`add_decoration`::
+
+	Add a mapping from an object to a void pointer. If there was a
+	previous value for this object, the function returns this value;
+	otherwise, the function returns NULL.
+
+`lookup_decoration`::
+
+	Retrieve the stored value pointer for an object from the
+	mapping. The return value is the value pointer, or `NULL` if
+	there is no value for this object.
