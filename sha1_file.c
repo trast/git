@@ -1275,6 +1275,17 @@ unsigned long unpack_object_header_buffer(const unsigned char *buf,
 		shift += 7;
 	}
 	*sizep = size;
+	if (*type == OBJ_EXT) {
+		const unsigned char *p = buf + used;
+		uintmax_t val = decode_in_pack_varint(&p);
+
+		if (p == buf + used && !val) {
+			error("bad extended object type");
+			return 0;
+		}
+		*type = val + (OBJ_LAST_BASE_TYPE + 1);
+		used = p - buf;
+	}
 	return used;
 }
 

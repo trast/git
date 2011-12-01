@@ -381,12 +381,14 @@ enum object_type {
 	OBJ_TREE = 2,
 	OBJ_BLOB = 3,
 	OBJ_TAG = 4,
-	/* 5 for future expansion */
+	OBJ_EXT = 5,
 	OBJ_OFS_DELTA = 6,
 	OBJ_REF_DELTA = 7,
 	OBJ_ANY,
 	OBJ_MAX
 };
+#define OBJ_LAST_BASE_TYPE OBJ_REF_DELTA
+#define OBJ_LAST_VALID_TYPE OBJ_REF_DELTA
 
 static inline enum object_type object_type(unsigned int mode)
 {
