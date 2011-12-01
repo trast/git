@@ -124,8 +124,20 @@ test_expect_success 'split limit' '
 		# switch to a better chunking heuristics.
 		echo cruft >head &&
 		cat split >>head &&
-		git add head
+		git add head &&
 
+		echo blob >expect &&
+		git cat-file -t :split >actual &&
+		test_cmp expect actual &&
+
+		git cat-file -p :split >actual &&
+		# You probably do not want to use test_cmp here...
+		cmp split actual &&
+
+		mv split expect &&
+		git checkout split &&
+		# You probably do not want to use test_cmp here...
+		cmp expect split
 	)
 '
 
