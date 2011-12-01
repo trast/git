@@ -384,11 +384,17 @@ enum object_type {
 	OBJ_EXT = 5,
 	OBJ_OFS_DELTA = 6,
 	OBJ_REF_DELTA = 7,
+	OBJ_CHUNKED_COMMIT = 8,
+	OBJ_CHUNKED_TREE = 9,
+	OBJ_CHUNKED_BLOB = 10,
+	OBJ_CHUNKED_TAG = 11,
 	OBJ_ANY,
 	OBJ_MAX
 };
 #define OBJ_LAST_BASE_TYPE OBJ_REF_DELTA
-#define OBJ_LAST_VALID_TYPE OBJ_REF_DELTA
+#define OBJ_LAST_VALID_TYPE OBJ_CHUNKED_BLOB
+#define OBJ_CHUNKED(type) ((type) + 7)
+#define OBJ_DEKNUHC(type) ((type) - 7)
 
 static inline enum object_type object_type(unsigned int mode)
 {
@@ -602,6 +608,7 @@ extern size_t packed_git_limit;
 extern size_t delta_base_cache_limit;
 extern unsigned long big_file_threshold;
 extern unsigned long pack_size_limit_cfg;
+extern unsigned long split_size_limit_cfg;
 extern int read_replace_refs;
 extern int fsync_object_files;
 extern int core_preload_index;

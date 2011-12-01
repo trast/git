@@ -61,6 +61,7 @@ int grafts_replace_parents = 1;
 int core_apply_sparse_checkout;
 struct startup_info *startup_info;
 unsigned long pack_size_limit_cfg;
+unsigned long split_size_limit_cfg;
 
 /* Parallel index stat data preload? */
 int core_preload_index = 0;
