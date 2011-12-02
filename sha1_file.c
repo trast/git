@@ -2202,6 +2202,9 @@ int sha1_object_info_extended(const unsigned char *sha1, struct object_info *oi)
 		oi->u.packed.pack = e.p;
 		oi->u.packed.is_delta = (rtype == OBJ_REF_DELTA ||
 					 rtype == OBJ_OFS_DELTA);
+		oi->u.packed.is_chunked =
+			(OBJ_CHUNKED_BLOB <= rtype &&
+			 rtype <= OBJ_CHUNKED_BLOB);
 	}
 
 	return status;

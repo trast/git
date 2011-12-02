@@ -1097,7 +1097,8 @@ struct object_info {
 		struct {
 			struct packed_git *pack;
 			off_t offset;
-			unsigned int is_delta;
+			unsigned int is_delta:1;
+			unsigned int is_chunked:1;
 		} packed;
 	} u;
 };
