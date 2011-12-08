@@ -1915,7 +1915,7 @@ static void diff_flush_filepair(struct rev_info *rev, struct diff_line_range *ra
 	name_a  = one->path;
 	name_b = two->path;
 	fill_metainfo(&meta, name_a, name_b, one, two, opt, &p, &must_show_header,
-			DIFF_OPT_TST(opt, COLOR_DIFF));
+		      (opt->use_color > 0));
 
 	diff_set_mnemonic_prefix(opt, "a/", "b/");
 	if (DIFF_OPT_TST(opt, REVERSE_DIFF)) {
