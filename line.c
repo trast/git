@@ -1595,21 +1595,19 @@ static int assign_range_to_parent(struct rev_info *rev, struct commit *commit,
 			prev_range->next = NULL;
 	}
 
-	if (!map)
-		goto out;
+	if (map) {
+		if (final_range) {
+			assert(parent);
+			assert(final_range->spec);
+			add_line_range(rev, parent, final_range);
+		}
 
-	if (final_range) {
-		assert(parent);
-		assert(final_range->spec);
-		add_line_range(rev, parent, final_range);
+		/* and the ranges of current commit is updated */
+		commit->object.flags &= ~RANGE_UPDATE;
+		if (diff)
+			commit->object.flags |= NEED_PRINT;
 	}
 
-	/* and the ranges of current commit is updated */
-	commit->object.flags &= ~RANGE_UPDATE;
-	if (diff)
-		commit->object.flags |= NEED_PRINT;
-
-out:
 	if (tree1)
 		free(tree1);
 	if (tree2)
