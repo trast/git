@@ -2,8 +2,66 @@
 #include "column.h"
 #include "string-list.h"
 #include "parse-options.h"
+#include "utf8.h"
 
 #define MODE(mode) ((mode) & COL_MODE)
+#define XY2LINEAR(d,x,y) (MODE((d)->mode) == COL_MODE_COLUMN ? \
+			  (x) * (d)->rows + (y) : \
+			  (y) * (d)->cols + (x))
+
+struct column_data {
+	const struct string_list *list; /* list of all cells */
+	int mode;			/* COL_MODE */
+	int total_width;		/* terminal width */
+	int padding;			/* cell padding */
+	const char *indent;		/* left most column indentation */
+	const char *nl;
+
+	int rows, cols;
+	int *len;			/* cell length */
+};
+
+/* return length of 's' in letters, ANSI escapes stripped */
+static int item_length(int mode, const char *s)
+{
+	int len, i = 0;
+	struct strbuf str = STRBUF_INIT;
+
+	if (!(mode & COL_ANSI))
+		return utf8_strwidth(s);
+
+	strbuf_addstr(&str, s);
+	while ((s = strstr(str.buf + i, "\033[")) != NULL) {
+		int len = strspn(s + 2, "0123456789;");
+		i = s - str.buf;
+		strbuf_remove(&str, i, len + 3); /* \033[<len><func char> */
+	}
+	len = utf8_strwidth(str.buf);
+	strbuf_release(&str);
+	return len;
+}
+
+/*
+ * Calculate cell width, rows and cols for a table of equal cells, given
+ * table width and how many spaces between cells.
+ */
+static void layout(struct column_data *data, int *width)
+{
+	int i;
+
+	*width = 0;
+	for (i = 0; i < data->list->nr; i++)
+		if (*width < data->len[i])
+			*width = data->len[i];
+
+	*width += data->padding;
+
+	data->cols = (data->total_width - strlen(data->indent)) / *width;
+	if (data->cols == 0)
+		data->cols = 1;
+
+	data->rows = DIV_ROUND_UP(data->list->nr, data->cols);
+}
 
 /* Display without layout when COL_ENABLED is not set */
 static void display_plain(const struct string_list *list,
@@ -13,6 +71,65 @@ static void display_plain(const struct string_list *list,
 
 	for (i = 0; i < list->nr; i++)
 		printf("%s%s%s", indent, list->items[i].string, nl);
+}
+
+/* Print a cell to stdout with all necessary leading/traling space */
+static int display_cell(struct column_data *data, int initial_width,
+			const char *empty_cell, int x, int y)
+{
+	int i, len, newline;
+
+	i = XY2LINEAR(data, x, y);
+	if (i >= data->list->nr)
+		return -1;
+	len = data->len[i];
+	if (MODE(data->mode) == COL_MODE_COLUMN)
+		newline = i + data->rows >= data->list->nr;
+	else
+		newline = x == data->cols - 1 || i == data->list->nr - 1;
+
+	printf("%s%s%s",
+			x == 0 ? data->indent : "",
+			data->list->items[i].string,
+			newline ? data->nl : empty_cell + len);
+	return 0;
+}
+
+/* Display COL_MODE_COLUMN or COL_MODE_ROW */
+static void display_table(const struct string_list *list,
+			  int mode, int total_width,
+			  int padding, const char *indent,
+			  const char *nl)
+{
+	struct column_data data;
+	int x, y, i, initial_width;
+	char *empty_cell;
+
+	memset(&data, 0, sizeof(data));
+	data.list = list;
+	data.mode = mode;
+	data.total_width = total_width;
+	data.padding = padding;
+	data.indent = indent;
+	data.nl = nl;
+
+	data.len = xmalloc(sizeof(*data.len) * list->nr);
+	for (i = 0; i < list->nr; i++)
+		data.len[i] = item_length(mode, list->items[i].string);
+
+	layout(&data, &initial_width);
+
+	empty_cell = xmalloc(initial_width + 1);
+	memset(empty_cell, ' ', initial_width);
+	empty_cell[initial_width] = '\0';
+	for (y = 0; y < data.rows; y++) {
+		for (x = 0; x < data.cols; x++)
+			if (display_cell(&data, initial_width, empty_cell, x, y))
+				break;
+	}
+
+	free(data.len);
+	free(empty_cell);
 }
 
 void print_columns(const struct string_list *list, unsigned int mode,
@@ -36,7 +153,16 @@ void print_columns(const struct string_list *list, unsigned int mode,
 		display_plain(list, indent, nl);
 		return;
 	}
-	die("BUG: invalid mode %d", MODE(mode));
+
+	switch (MODE(mode)) {
+	case COL_MODE_ROW:
+	case COL_MODE_COLUMN:
+		display_table(list, mode, width, padding, indent, nl);
+		break;
+
+	default:
+		die("BUG: invalid mode %d", MODE(mode));
+	}
 }
 
 struct colopt {
@@ -98,6 +224,9 @@ static int parse_option(const char *arg, int len,
 		{ ENABLE, "always",  1 },
 		{ ENABLE, "never",   0 },
 		{ ENABLE, "auto",   -1 },
+		{ MODE,   "column", COL_MODE_COLUMN },
+		{ MODE,   "row",    COL_MODE_ROW },
+		{ OPTION, "color",  COL_ANSI },
 	};
 	int i, set, name_len;
 
