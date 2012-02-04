@@ -30,4 +30,7 @@ struct option;
 extern int parseopt_column_callback(const struct option *opt,
 				    const char *arg, int unset);
 
+extern int run_column_filter(int colopts, const struct column_options *);
+extern int stop_column_filter();
+
 #endif
