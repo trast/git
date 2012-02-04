@@ -89,7 +89,7 @@ void setup_pager(void)
 	const char *pager = git_pager(isatty(1));
 	int width;
 
-	if (!pager)
+	if (!pager || pager_in_use())
 		return;
 
 	setenv("GIT_PAGER_IN_USE", "true", 1);
