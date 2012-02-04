@@ -8,7 +8,7 @@ git-column - Display data in columns
 SYNOPSIS
 --------
 [verse]
-'git column' [--mode=<mode> | --rawmode=<n>] [--width=<width>]
+'git column' [--command=<name>] [--[raw]mode=<mode>] [--width=<width>]
 	     [--indent=<string>] [--nl=<string>] [--pading=<n>]
 
 DESCRIPTION
@@ -17,6 +17,10 @@ This command formats its input into multiple columns.
 
 OPTIONS
 -------
+--command=<name>::
+	Look up layout mode using configuration variable column.<name> and
+	column.ui.
+
 --mode=<mode>::
 	Specify layout mode. See configuration variable column.ui for option
 	syntax.

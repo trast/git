@@ -2,6 +2,7 @@
 #include "column.h"
 #include "string-list.h"
 #include "parse-options.h"
+#include "color.h"
 #include "utf8.h"
 
 #define MODE(mode) ((mode) & COL_MODE)
@@ -354,6 +355,41 @@ int git_config_column(unsigned int *mode, const char *value,
 		value += strspn(value, sep);
 	}
 	return 0;
+}
+
+static int column_config(const char *var, const char *value,
+			 const char *key, unsigned int *colopts)
+{
+	if (!strcmp(var, key)) {
+		int ret = git_config_column(colopts, value, -1);
+		if (ret)
+			die("invalid %s mode %s", key, value);
+		return 0;
+	}
+	return 1;		/* go on */
+}
+
+int git_column_config(const char *var, const char *value,
+		      const char *command, unsigned int *colopts)
+{
+	int ret;
+
+	*colopts &= ~COL_ENABLED_SET;
+	ret = column_config(var, value, "column.ui", colopts);
+	if (ret <= 0)
+		return ret;
+
+	if (command) {
+		struct strbuf sb = STRBUF_INIT;
+		strbuf_addf(&sb, "column.%s", command);
+		*colopts &= ~COL_ENABLED_SET;
+		ret = column_config(var, value, sb.buf, colopts);
+		strbuf_release(&sb);
+		if (ret <= 0)
+			return ret;
+	}
+
+	return 1;		/* go on */
 }
 
 int parseopt_column_callback(const struct option *opt,

@@ -23,6 +23,8 @@ extern void print_columns(const struct string_list *list,
 			  struct column_options *opts);
 extern int git_config_column(unsigned int *mode, const char *value,
 			     int stdout_is_tty);
+extern int git_column_config(const char *var, const char *value,
+			     const char *command, unsigned int *colopts);
 
 struct option;
 extern int parseopt_column_callback(const struct option *opt,
