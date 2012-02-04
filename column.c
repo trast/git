@@ -19,6 +19,7 @@ struct column_data {
 
 	int rows, cols;
 	int *len;			/* cell length */
+	int *width;			/* index to the longest row in column */
 };
 
 /* return length of 's' in letters, ANSI escapes stripped */
@@ -63,6 +64,69 @@ static void layout(struct column_data *data, int *width)
 	data->rows = DIV_ROUND_UP(data->list->nr, data->cols);
 }
 
+static void compute_column_width(struct column_data *data)
+{
+	int i, x, y;
+	for (x = 0; x < data->cols; x++) {
+		data->width[x] = XY2LINEAR(data, x, 0);
+		for (y = 0; y < data->rows; y++) {
+			i = XY2LINEAR(data, x, y);
+			if (i >= data->list->nr)
+				continue;
+			if (data->len[data->width[x]] < data->len[i])
+				data->width[x] = i;
+		}
+	}
+}
+
+/*
+ * Shrink all columns by shortening them one row each time (and adding
+ * more columns along the way). Hopefully the longest cell will be
+ * moved to the next column, column is shrunk so we have more space
+ * for new columns. The process ends when the whole thing no longer
+ * fits in data->total_width.
+ */
+static void shrink_columns(struct column_data *data)
+{
+	int x, y, total_width, cols, rows;
+
+	data->width = xrealloc(data->width,
+			       sizeof(*data->width) * data->cols);
+	for (x = 0; x < data->cols; x++) {
+		data->width[x] = 0;
+		for (y = 0; y < data->rows; y++) {
+			int len1 = data->len[data->width[x]];
+			int len2 = data->len[XY2LINEAR(data, x, y)];
+			if (len1 < len2)
+				data->width[x] = y;
+		}
+	}
+
+	while (data->rows > 1) {
+		rows = data->rows;
+		cols = data->cols;
+
+		data->rows--;
+		data->cols = DIV_ROUND_UP(data->list->nr, data->rows);
+		if (data->cols != cols)
+			data->width = xrealloc(data->width, sizeof(*data->width) * data->cols);
+
+		compute_column_width(data);
+
+		total_width = strlen(data->indent);
+		for (x = 0; x < data->cols; x++) {
+			total_width += data->len[data->width[x]];
+			total_width += data->padding;
+		}
+		if (total_width > data->total_width) {
+			data->rows = rows;
+			data->cols = cols;
+			compute_column_width(data);
+			break;
+		}
+	}
+}
+
 /* Display without layout when COL_ENABLED is not set */
 static void display_plain(const struct string_list *list,
 			  const char *indent, const char *nl)
@@ -82,7 +146,18 @@ static int display_cell(struct column_data *data, int initial_width,
 	i = XY2LINEAR(data, x, y);
 	if (i >= data->list->nr)
 		return -1;
+
 	len = data->len[i];
+	if (data->width && data->len[data->width[x]] < initial_width) {
+		/*
+		 * empty_cell has initial_width chars, if real column
+		 * is narrower, increase len a bit so we fill less
+		 * space.
+		 */
+		len += initial_width - data->len[data->width[x]];
+		len -= data->padding;
+	}
+
 	if (MODE(data->mode) == COL_MODE_COLUMN)
 		newline = i + data->rows >= data->list->nr;
 	else
@@ -119,6 +194,9 @@ static void display_table(const struct string_list *list,
 
 	layout(&data, &initial_width);
 
+	if (mode & COL_DENSE)
+		shrink_columns(&data);
+
 	empty_cell = xmalloc(initial_width + 1);
 	memset(empty_cell, ' ', initial_width);
 	empty_cell[initial_width] = '\0';
@@ -129,6 +207,7 @@ static void display_table(const struct string_list *list,
 	}
 
 	free(data.len);
+	free(data.width);
 	free(empty_cell);
 }
 
@@ -227,6 +306,7 @@ static int parse_option(const char *arg, int len,
 		{ MODE,   "column", COL_MODE_COLUMN },
 		{ MODE,   "row",    COL_MODE_ROW },
 		{ OPTION, "color",  COL_ANSI },
+		{ OPTION, "dense",  COL_DENSE },
 	};
 	int i, set, name_len;
 

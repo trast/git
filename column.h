@@ -7,6 +7,8 @@
 #define COL_ENABLED      (1 << 4)
 #define COL_ENABLED_SET  (1 << 5)  /* Has COL_ENABLED been set by config? */
 #define COL_ANSI         (1 << 6)  /* Remove ANSI escapes from string length */
+#define COL_DENSE        (1 << 7)  /* Shrink columns when possible,
+				      making space for more columns */
 
 struct column_options {
 	int width;
