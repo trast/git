@@ -172,6 +172,33 @@ EOF
 	test_cmp expected actual
 '
 
+test_expect_success 'git branch --column with an extremely long branch name' '
+	long=this/is/a/part/of/long/branch/name &&
+	long=z$long/$long/$long/$long &&
+	test_when_finished "git branch -d $long" &&
+	git branch $long &&
+	COLUMNS=80 git branch --column=column >actual &&
+	cat >expected <<EOF &&
+  a/b/c
+  abc
+  bam
+  bar
+  foo
+  j/k
+  l
+  m/m
+* master
+  master2
+  n
+  o/o
+  o/p
+  q
+  r
+  $long
+EOF
+	test_cmp expected actual
+'
+
 test_expect_success 'git branch with column.*' '
 	git config column.ui column &&
 	git config column.branch "dense" &&
