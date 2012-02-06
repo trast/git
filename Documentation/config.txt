@@ -837,9 +837,8 @@ commit.ignoreIntentToAdd::
 	in index. Set to `false` to disallow commit in this acase, or `true`
 	to allow it.
 +
-By default, `git commit` refuses to commit as-is when you have intent-to-add
-entries. This will change in 1.8.0, where `git commit` allows it. If you
-prefer current behavior, please set it to `false`.
+By default, `git commit` allows to commit as-is when you have intent-to-add
+entries. Support for this configuration variable will be dropped in FIXME.
 
 credential.helper::
 	Specify an external helper to be called when a username or

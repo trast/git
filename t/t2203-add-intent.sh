@@ -41,11 +41,11 @@ test_expect_success 'cannot commit with i-t-a entry' '
 	echo frotz >nitfol &&
 	git add rezrov &&
 	git add -N nitfol &&
-	test_must_fail git commit -minitial
+	git commit -minitial
 '
 
 test_expect_success 'can commit tree with i-t-a entry' '
-	git reset --hard &&
+	git reset --hard HEAD^ &&
 	echo xyzzy >rezrov &&
 	echo frotz >nitfol &&
 	git add rezrov &&

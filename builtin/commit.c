@@ -423,17 +423,17 @@ static char *prepare_index(int argc, const char **argv, const char *prefix,
 	if (!pathspec || !*pathspec) {
 		fd = hold_locked_index(&index_lock, 1);
 		refresh_cache_or_die(refresh_flags);
-		if (!set_commit_ignoreintenttoadd) {
+		if (!(cache_tree_flags & WRITE_TREE_IGNORE_INTENT_TO_ADD)) {
 			int i;
 			for (i = 0; i < active_nr; i++)
 				if (active_cache[i]->ce_flags & CE_INTENT_TO_ADD)
 					break;
 			if (i < active_nr)
 				warning(_("You are committing as-is with intent-to-add entries as the result of\n"
-					  "\"git add -N\". Git currently forbids this case. This will change in\n"
-					  "1.8.0 where intent-to-add entries are simply ignored when committing\n"
-					  "as-is. Please look up document and set commit.ignoreIntentToAdd\n"
-					  "properly to stop this warning."));
+					  "\"git add -N\". Git currently forbids this case. But this is deprecated\n"
+					  "support for this behavior will be dropped in FIXME.\n"
+					  "Please look up document and set commit.ignoreIntentToAdd to true\n"
+					  "or remove it."));
 		}
 		if (active_cache_changed) {
 			update_main_cache_tree(cache_tree_flags | WRITE_TREE_SILENT);
@@ -1422,6 +1422,9 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 	wt_status_prepare(&s);
 	git_config(git_commit_config, &s);
 	determine_whence(&s);
+
+	if (!set_commit_ignoreintenttoadd)
+		cache_tree_flags |= WRITE_TREE_IGNORE_INTENT_TO_ADD;
 
 	if (get_sha1("HEAD", sha1))
 		current_head = NULL;
