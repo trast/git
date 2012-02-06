@@ -41,7 +41,26 @@ test_expect_success 'cannot commit with i-t-a entry' '
 	echo frotz >nitfol &&
 	git add rezrov &&
 	git add -N nitfol &&
-	test_must_fail git commit
+	test_must_fail git commit -minitial
+'
+
+test_expect_success 'can commit tree with i-t-a entry' '
+	git reset --hard &&
+	echo xyzzy >rezrov &&
+	echo frotz >nitfol &&
+	git add rezrov &&
+	git add -N nitfol &&
+	git config commit.ignoreIntentToAdd true &&
+	git commit -m initial &&
+	git ls-tree -r HEAD >actual &&
+	cat >expected <<EOF &&
+100644 blob ce013625030ba8dba906f756967f9e9ca394464a	elif
+100644 blob ce013625030ba8dba906f756967f9e9ca394464a	file
+100644 blob cf7711b63209d0dbc2d030f7fe3513745a9880e4	rezrov
+EOF
+	test_cmp expected actual &&
+	git config commit.ignoreIntentToAdd false &&
+	git reset HEAD^
 '
 
 test_expect_success 'can commit with an unrelated i-t-a entry in index' '

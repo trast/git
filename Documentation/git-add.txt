@@ -123,8 +123,16 @@ subdirectories.
 	Record only the fact that the path will be added later. An entry
 	for the path is placed in the index with no content. This is
 	useful for, among other things, showing the unstaged content of
-	such files with `git diff` and committing them with `git commit
-	-a`.
+	such files with `git diff`.
++
+Paths added with this option have intent-to-add flag in index. The
+flag is removed once real content is added or updated. By default you
+cannot commit the index as-is from until this flag is removed from all
+entries (i.e. all entries have real content). See commit.ignoreIntentToAdd
+regardless the flag.
++
+Committing with `git commit -a` or with selected paths works
+regardless the config key and the flag.
 
 --refresh::
 	Don't add the file(s), but only refresh their stat()

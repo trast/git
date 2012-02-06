@@ -86,6 +86,7 @@ static int all, also, interactive, patch_interactive, only, amend, signoff;
 static int edit_flag = -1; /* unspecified */
 static int quiet, verbose, no_verify, allow_empty, dry_run, renew_authorship;
 static int no_post_rewrite, allow_empty_message;
+static int cache_tree_flags;
 static char *untracked_files_arg, *force_date, *ignore_submodule_arg;
 static char *sign_commit;
 
@@ -116,6 +117,8 @@ static enum {
 	STATUS_FORMAT_PORCELAIN
 } status_format = STATUS_FORMAT_LONG;
 static int status_show_branch;
+
+static int set_commit_ignoreintenttoadd;
 
 static int opt_parse_m(const struct option *opt, const char *arg, int unset)
 {
@@ -400,7 +403,7 @@ static char *prepare_index(int argc, const char **argv, const char *prefix,
 		fd = hold_locked_index(&index_lock, 1);
 		add_files_to_cache(also ? prefix : NULL, pathspec, 0);
 		refresh_cache_or_die(refresh_flags);
-		update_main_cache_tree(WRITE_TREE_SILENT);
+		update_main_cache_tree(cache_tree_flags | WRITE_TREE_SILENT);
 		if (write_cache(fd, active_cache, active_nr) ||
 		    close_lock_file(&index_lock))
 			die(_("unable to write new_index file"));
@@ -420,8 +423,20 @@ static char *prepare_index(int argc, const char **argv, const char *prefix,
 	if (!pathspec || !*pathspec) {
 		fd = hold_locked_index(&index_lock, 1);
 		refresh_cache_or_die(refresh_flags);
+		if (!set_commit_ignoreintenttoadd) {
+			int i;
+			for (i = 0; i < active_nr; i++)
+				if (active_cache[i]->ce_flags & CE_INTENT_TO_ADD)
+					break;
+			if (i < active_nr)
+				warning(_("You are committing as-is with intent-to-add entries as the result of\n"
+					  "\"git add -N\". Git currently forbids this case. This will change in\n"
+					  "1.8.0 where intent-to-add entries are simply ignored when committing\n"
+					  "as-is. Please look up document and set commit.ignoreIntentToAdd\n"
+					  "properly to stop this warning."));
+		}
 		if (active_cache_changed) {
-			update_main_cache_tree(WRITE_TREE_SILENT);
+			update_main_cache_tree(cache_tree_flags | WRITE_TREE_SILENT);
 			if (write_cache(fd, active_cache, active_nr) ||
 			    commit_locked_index(&index_lock))
 				die(_("unable to write new_index file"));
@@ -870,7 +885,7 @@ static int prepare_to_commit(const char *index_file, const char *prefix,
 	 */
 	discard_cache();
 	read_cache_from(index_file);
-	if (update_main_cache_tree(0)) {
+	if (update_main_cache_tree(cache_tree_flags)) {
 		error(_("Error building trees"));
 		return 0;
 	}
@@ -1337,6 +1352,13 @@ static int git_commit_config(const char *k, const char *v, void *cb)
 	if (!strcmp(k, "commit.status")) {
 		include_status = git_config_bool(k, v);
 		return 0;
+	}
+	if (!strcmp(k, "commit.ignoreintenttoadd")) {
+		set_commit_ignoreintenttoadd = 1;
+		if (git_config_bool(k, v))
+			cache_tree_flags |= WRITE_TREE_IGNORE_INTENT_TO_ADD;
+		else
+			cache_tree_flags &= ~WRITE_TREE_IGNORE_INTENT_TO_ADD;
 	}
 
 	status = git_gpg_config(k, v, NULL);
