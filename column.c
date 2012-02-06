@@ -7,9 +7,9 @@
 #include "utf8.h"
 
 #define MODE(mode) ((mode) & COL_MODE)
-#define XY2LINEAR(d,x,y) (MODE((d)->mode) == COL_MODE_COLUMN ? \
-			  (x) * (d)->rows + (y) : \
-			  (y) * (d)->cols + (x))
+#define XY2LINEAR(d, x, y) (MODE((d)->mode) == COL_MODE_COLUMN ? \
+			    (x) * (d)->rows + (y) : \
+			    (y) * (d)->cols + (x))
 
 struct column_data {
 	const struct string_list *list; /* list of all cells */
@@ -318,9 +318,9 @@ static int parse_option(const char *arg, int len,
 				arg += 2;
 				len -= 2;
 				set = 0;
-			}
-			else
+			} else {
 				set = 1;
+			}
 		}
 
 		name_len = strlen(opts[i].name);
@@ -329,11 +329,15 @@ static int parse_option(const char *arg, int len,
 			continue;
 
 		switch (opts[i].type) {
-		case ENABLE: return set_enable_bit(mode, opts[i].value,
-						   stdout_is_tty);
-		case MODE: return set_mode(mode, opts[i].value);
-		case OPTION: return set_option(mode, opts[i].value, set);
-		default: die("BUG: Unknown option type %d", opts[i].type);
+		case ENABLE:
+			return set_enable_bit(mode, opts[i].value,
+					      stdout_is_tty);
+		case MODE:
+			return set_mode(mode, opts[i].value);
+		case OPTION:
+			return set_option(mode, opts[i].value, set);
+		default:
+			die("BUG: Unknown option type %d", opts[i].type);
 		}
 	}
 
@@ -463,7 +467,7 @@ int run_column_filter(int colopts, const struct column_options *opts)
 	return 0;
 }
 
-int stop_column_filter()
+int stop_column_filter(void)
 {
 	if (fd_out == -1)
 		return -1;

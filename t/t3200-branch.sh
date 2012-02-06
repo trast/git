@@ -193,22 +193,22 @@ test_expect_success 'git branch -v with column.ui ignored' '
 	git config column.ui column &&
 	COLUMNS=80 git branch -v | cut -c -10 >actual &&
 	git config --unset column.ui &&
-	cat >expected <<\EOF &&
-  a/b/c   
-  abc     
-  bam     
-  bar     
-  foo     
-  j/k     
-  l       
-  m/m     
-* master  
-  master2 
-  n       
-  o/o     
-  o/p     
-  q       
-  r       
+	sed -e "s/|$//" >expected <<\EOF &&
+  a/b/c   |
+  abc     |
+  bam     |
+  bar     |
+  foo     |
+  j/k     |
+  l       |
+  m/m     |
+* master  |
+  master2 |
+  n       |
+  o/o     |
+  o/p     |
+  q       |
+  r       |
 EOF
 	test_cmp expected actual
 '

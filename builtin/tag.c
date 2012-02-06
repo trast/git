@@ -415,7 +415,7 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 		OPT_STRING('u', "local-user", &keyid, "key-id",
 					"use another key to sign the tag"),
 		OPT__FORCE(&force, "replace the tag if exists"),
-		OPT_COLUMN(0, "column", &colopts, "show tag list in columns" ),
+		OPT_COLUMN(0, "column", &colopts, "show tag list in columns"),
 
 		OPT_GROUP("Tag listing options"),
 		{

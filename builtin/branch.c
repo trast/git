@@ -485,9 +485,9 @@ static void print_ref_item(struct ref_item *item, int maxwidth, int verbose,
 	if (colopts & COL_ENABLED) {
 		assert(!verbose && "--column and --verbose are incompatible");
 		string_list_append(&output, out.buf);
-	}
-	else
+	} else {
 		printf("%s\n", out.buf);
+	}
 	strbuf_release(&name);
 	strbuf_release(&out);
 }
@@ -740,7 +740,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 			PARSE_OPT_LASTARG_DEFAULT | PARSE_OPT_NONEG,
 			opt_parse_merge_filter, (intptr_t) "HEAD",
 		},
-		OPT_COLUMN(0, "column", &colopts, "list branches in columns" ),
+		OPT_COLUMN(0, "column", &colopts, "list branches in columns"),
 		OPT_END(),
 	};
 

@@ -39,7 +39,7 @@ int cmd_column(int argc, const char **argv, const char *prefix)
 		setup_git_directory_gently(&nonitok);
 
 		command = argv[1] + 10;
-		git_config(column_config, (void*)command);
+		git_config(column_config, (void *)command);
 	}
 
 	memset(&copts, 0, sizeof(copts));

@@ -670,7 +670,7 @@ static void wt_status_print_other(struct wt_status *s,
 		return;
 
 	strbuf_addf(&buf, "%s#\t%s",
-		    color(WT_STATUS_HEADER,s),
+		    color(WT_STATUS_HEADER, s),
 		    color(WT_STATUS_UNTRACKED, s));
 	memset(&copts, 0, sizeof(copts));
 	copts.padding = 1;

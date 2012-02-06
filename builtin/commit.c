@@ -1210,7 +1210,7 @@ int cmd_status(int argc, const char **argv, const char *prefix)
 		{ OPTION_STRING, 0, "ignore-submodules", &ignore_submodule_arg, "when",
 		  "ignore changes to submodules, optional when: all, dirty, untracked. (Default: all)",
 		  PARSE_OPT_OPTARG, NULL, (intptr_t)"all" },
-		OPT_COLUMN(0, "column", &colopts, "list untracked files in columns" ),
+		OPT_COLUMN(0, "column", &colopts, "list untracked files in columns"),
 		OPT_END(),
 	};
 

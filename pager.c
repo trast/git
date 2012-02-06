@@ -131,7 +131,7 @@ int pager_in_use(void)
 	return env ? git_config_bool("GIT_PAGER_IN_USE", env) : 0;
 }
 
-int term_columns()
+int term_columns(void)
 {
 	char *col_string = getenv("COLUMNS");
 	int n_cols;
