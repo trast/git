@@ -831,15 +831,6 @@ commit.template::
 	"{tilde}/" is expanded to the value of `$HOME` and "{tilde}user/" to the
 	specified user's home directory.
 
-commit.ignoreIntentToAdd::
-	Allow to commit the index as-is even if there are
-	intent-to-add entries (see option `-N` in linkgit:git-add[1])
-	in index. Set to `false` to disallow commit in this acase, or `true`
-	to allow it.
-+
-By default, `git commit` allows to commit as-is when you have intent-to-add
-entries. Support for this configuration variable will be dropped in FIXME.
-
 credential.helper::
 	Specify an external helper to be called when a username or
 	password credential is needed; the helper may consult external

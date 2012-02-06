@@ -50,7 +50,7 @@ test_expect_success 'can commit tree with i-t-a entry' '
 	echo frotz >nitfol &&
 	git add rezrov &&
 	git add -N nitfol &&
-	git config commit.ignoreIntentToAdd true &&
+	git config commit.ignoreIntentToAdd false &&
 	git commit -m initial &&
 	git ls-tree -r HEAD >actual &&
 	cat >expected <<EOF &&
