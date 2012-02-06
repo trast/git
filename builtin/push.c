@@ -9,6 +9,7 @@
 #include "transport.h"
 #include "parse-options.h"
 #include "submodule.h"
+#include "advice.h"
 
 static const char * const push_usage[] = {
 	"git push [<options>] [<repository> [<refspec>...]]",
@@ -24,6 +25,7 @@ static int progress;
 static const char **refspec;
 static int refspec_nr;
 static int refspec_alloc;
+static int default_matching_used;
 
 static void add_refspec(const char *ref)
 {
@@ -95,6 +97,9 @@ static void setup_default_push_refspecs(struct remote *remote)
 {
 	switch (push_default) {
 	default:
+	case PUSH_DEFAULT_UNSPECIFIED:
+		default_matching_used = 1;
+		/* fallthru */
 	case PUSH_DEFAULT_MATCHING:
 		add_refspec(":");
 		break;
@@ -112,6 +117,23 @@ static void setup_default_push_refspecs(struct remote *remote)
 		    "push.default is \"nothing\"."));
 		break;
 	}
+}
+
+static const char *message_advice_use_upstream[] = {
+	"If you are pushing into a repository that receives pushes from",
+	"repositories other than the current repository, you may want to",
+	"set 'push.default' configuration variable to 'upstream' to avoid",
+	"pushing branches you haven't worked on that others have updated.",
+};
+
+static void advise_use_upstream(void)
+{
+	int i;
+
+	if (!advice_push_use_upstream)
+		return;
+	for (i = 0; i < ARRAY_SIZE(message_advice_use_upstream); i++)
+		advise(message_advice_use_upstream[i]);
 }
 
 static int push_with_options(struct transport *transport, int flags)
@@ -135,6 +157,9 @@ static int push_with_options(struct transport *transport, int flags)
 		error(_("failed to push some refs to '%s'"), transport->url);
 
 	err |= transport_disconnect(transport);
+
+	if (nonfastforward && default_matching_used)
+		advise_use_upstream();
 
 	if (!err)
 		return 0;
