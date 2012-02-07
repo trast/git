@@ -19,6 +19,7 @@
 #include "remote.h"
 #include "string-list.h"
 #include "parse-options.h"
+#include "line.h"
 #include "branch.h"
 
 /* Set a default date-time format for git log ("log.date" config variable) */
@@ -35,6 +36,12 @@ static const char * const builtin_log_usage[] = {
 	"git log [<options>] [<since>..<until>] [[--] <path>...]\n"
 	"   or: git show [options] <object>...",
 	NULL
+};
+
+struct line_opt_callback_data {
+	struct rev_info *rev;
+	const char *prefix;
+	struct diff_line_range *ranges, *cur_range;
 };
 
 static int parse_decoration_style(const char *var, const char *value)
@@ -71,6 +78,39 @@ static int decorate_callback(const struct option *opt, const char *arg, int unse
 	return 0;
 }
 
+static int log_line_range_callback(const struct option *option, const char *arg, int unset)
+{
+	struct line_opt_callback_data *data = option->value;
+	struct diff_line_range *r;
+	const char *name_start, *range_arg, *full_path;
+	const char *prefix = data->prefix;
+
+	if (!arg)
+		return -1;
+
+	name_start = skip_range_arg(arg);
+	if (!name_start || *name_start != ':')
+		die("-L argument '%s' not of the form start,end:file", arg);
+
+	range_arg = xstrndup(arg, name_start-arg);
+	name_start++;
+
+	full_path = prefix_path(prefix, prefix ? strlen(prefix) : 0,
+				name_start);
+
+	r = xmalloc(sizeof(struct diff_line_range));
+	diff_line_range_init(r);
+	if (data->cur_range)
+		data->cur_range->next = r;
+	else
+		data->ranges = r;
+	data->cur_range = r;
+	r->spec = alloc_filespec(full_path);
+	diff_line_range_append(r, range_arg);
+	data->rev->line_level_traverse = 1;
+	return 0;
+}
+
 static void cmd_log_init_defaults(struct rev_info *rev)
 {
 	if (fmt_pretty)
@@ -91,14 +131,25 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 {
 	struct userformat_want w;
 	int quiet = 0, source = 0;
+	static struct line_opt_callback_data line_cb = {0};
+	static int full_line_diff;
 
 	const struct option builtin_log_options[] = {
 		OPT_BOOLEAN(0, "quiet", &quiet, "suppress diff output"),
 		OPT_BOOLEAN(0, "source", &source, "show source"),
 		{ OPTION_CALLBACK, 0, "decorate", NULL, NULL, "decorate options",
 		  PARSE_OPT_OPTARG, decorate_callback},
+		OPT_CALLBACK('L', NULL, &line_cb, "n,m:file",
+			     "Process line range n,m in file, counting from 1",
+			     log_line_range_callback),
+		OPT_BOOLEAN(0, "full-line-diff", &full_line_diff,
+			    "Always print the interesting range even if the \
+			    current commit does not change any line of it"),
 		OPT_END()
 	};
+
+	line_cb.rev = rev;
+	line_cb.prefix = prefix;
 
 	argc = parse_options(argc, argv, prefix,
 			     builtin_log_options, builtin_log_usage,
@@ -147,6 +198,13 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 		rev->show_decorations = 1;
 		load_ref_decorations(decoration_style);
 	}
+
+	/* Test whether line level history is asked for */
+	if (rev->line_level_traverse) {
+		line_log_init(rev, line_cb.ranges);
+		rev->full_line_diff = full_line_diff;
+	}
+
 	setup_pager();
 }
 
@@ -544,7 +602,10 @@ int cmd_log(int argc, const char **argv, const char *prefix)
 	memset(&opt, 0, sizeof(opt));
 	opt.def = "HEAD";
 	cmd_log_init(argc, argv, prefix, &rev, &opt);
-	return cmd_log_walk(&rev);
+	if (rev.line_level_traverse)
+		return line_log_walk(&rev);
+	else
+		return cmd_log_walk(&rev);
 }
 
 /* format-patch */
