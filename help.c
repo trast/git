@@ -4,28 +4,8 @@
 #include "levenshtein.h"
 #include "help.h"
 #include "common-cmds.h"
-
-/* most GUI terminals set COLUMNS (although some don't export it) */
-static int term_columns(void)
-{
-	char *col_string = getenv("COLUMNS");
-	int n_cols;
-
-	if (col_string && (n_cols = atoi(col_string)) > 0)
-		return n_cols;
-
-#ifdef TIOCGWINSZ
-	{
-		struct winsize ws;
-		if (!ioctl(1, TIOCGWINSZ, &ws)) {
-			if (ws.ws_col)
-				return ws.ws_col;
-		}
-	}
-#endif
-
-	return 80;
-}
+#include "string-list.h"
+#include "column.h"
 
 void add_cmdname(struct cmdnames *cmds, const char *name, int len)
 {
@@ -92,31 +72,18 @@ void exclude_cmds(struct cmdnames *cmds, struct cmdnames *excludes)
 	cmds->cnt = cj;
 }
 
-static void pretty_print_string_list(struct cmdnames *cmds, int longest)
+static void pretty_print_string_list(struct cmdnames *cmds)
 {
-	int cols = 1, rows;
-	int space = longest + 1; /* min 1 SP between words */
-	int max_cols = term_columns() - 1; /* don't print *on* the edge */
-	int i, j;
+	struct string_list list = STRING_LIST_INIT_NODUP;
+	struct column_options copts;
+	int i;
 
-	if (space < max_cols)
-		cols = max_cols / space;
-	rows = DIV_ROUND_UP(cmds->cnt, cols);
-
-	for (i = 0; i < rows; i++) {
-		printf("  ");
-
-		for (j = 0; j < cols; j++) {
-			int n = j * rows + i;
-			int size = space;
-			if (n >= cmds->cnt)
-				break;
-			if (j == cols-1 || n + rows >= cmds->cnt)
-				size = 1;
-			printf("%-*s", size, cmds->names[n]->name);
-		}
-		putchar('\n');
-	}
+	for (i = 0; i < cmds->cnt; i++)
+		string_list_append(&list, cmds->names[i]->name);
+	memset(&copts, 0, sizeof(copts));
+	copts.indent = "  ";
+	print_columns(&list, COL_MODE_COLUMN | COL_ENABLED, &copts);
+	string_list_clear(&list, 0);
 }
 
 static int is_executable(const char *name)
@@ -228,22 +195,13 @@ void load_command_list(const char *prefix,
 void list_commands(const char *title, struct cmdnames *main_cmds,
 		   struct cmdnames *other_cmds)
 {
-	int i, longest = 0;
-
-	for (i = 0; i < main_cmds->cnt; i++)
-		if (longest < main_cmds->names[i]->len)
-			longest = main_cmds->names[i]->len;
-	for (i = 0; i < other_cmds->cnt; i++)
-		if (longest < other_cmds->names[i]->len)
-			longest = other_cmds->names[i]->len;
-
 	if (main_cmds->cnt) {
 		const char *exec_path = git_exec_path();
 		printf("available %s in '%s'\n", title, exec_path);
 		printf("----------------");
 		mput_char('-', strlen(title) + strlen(exec_path));
 		putchar('\n');
-		pretty_print_string_list(main_cmds, longest);
+		pretty_print_string_list(main_cmds);
 		putchar('\n');
 	}
 
@@ -252,7 +210,7 @@ void list_commands(const char *title, struct cmdnames *main_cmds,
 		printf("---------------------------------------");
 		mput_char('-', strlen(title));
 		putchar('\n');
-		pretty_print_string_list(other_cmds, longest);
+		pretty_print_string_list(other_cmds);
 		putchar('\n');
 	}
 }

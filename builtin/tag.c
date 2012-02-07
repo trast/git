@@ -15,6 +15,7 @@
 #include "diff.h"
 #include "revision.h"
 #include "gpg-interface.h"
+#include "column.h"
 
 static const char * const git_tag_usage[] = {
 	"git tag [-a|-s|-u <key-id>] [-f] [-m <msg>|-F <file>] <tagname> [<head>]",
@@ -29,6 +30,8 @@ struct tag_filter {
 	int lines;
 	struct commit_list *with_commit;
 };
+
+static unsigned int colopts;
 
 static int match_pattern(const char **patterns, const char *ref)
 {
@@ -230,6 +233,9 @@ static int git_tag_config(const char *var, const char *value, void *cb)
 	int status = git_gpg_config(var, value, cb);
 	if (status)
 		return status;
+	status = git_column_config(var, value, "tag", &colopts);
+	if (status <= 0)
+		return status;
 	return git_default_config(var, value, cb);
 }
 
@@ -409,6 +415,7 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 		OPT_STRING('u', "local-user", &keyid, "key-id",
 					"use another key to sign the tag"),
 		OPT__FORCE(&force, "replace the tag if exists"),
+		OPT_COLUMN(0, "column", &colopts, "show tag list in columns"),
 
 		OPT_GROUP("Tag listing options"),
 		{
@@ -424,6 +431,7 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 
 	memset(&opt, 0, sizeof(opt));
 
+	colopts &= ~COL_ENABLED_SET;
 	argc = parse_options(argc, argv, prefix, options, git_tag_usage, 0);
 
 	if (keyid) {
@@ -441,9 +449,25 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 
 	if (list + delete + verify > 1)
 		usage_with_options(git_tag_usage, options);
-	if (list)
-		return list_tags(argv, lines == -1 ? 0 : lines,
-				 with_commit);
+	if (list && lines != -1) {
+		/* only die when --column is given explicitly */
+		if ((colopts & (COL_ENABLED_SET | COL_ENABLED)) == (COL_ENABLED_SET | COL_ENABLED))
+			die(_("--column and -n are incompatible"));
+		colopts = 0;
+	}
+	if (list) {
+		int ret;
+		if (lines == -1 && colopts & COL_ENABLED) {
+			struct column_options copts;
+			memset(&copts, 0, sizeof(copts));
+			copts.padding = 2;
+			run_column_filter(colopts, &copts);
+		}
+		ret = list_tags(argv, lines == -1 ? 0 : lines, with_commit);
+		if (lines == -1 && colopts & COL_ENABLED)
+			stop_column_filter();
+		return ret;
+	}
 	if (lines != -1)
 		die(_("-n option is only allowed with -l."));
 	if (with_commit)

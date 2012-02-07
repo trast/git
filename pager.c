@@ -6,6 +6,21 @@
 #define DEFAULT_PAGER "less"
 #endif
 
+static int spawned_pager;
+static int max_columns;
+
+static int retrieve_terminal_width(void)
+{
+#ifdef TIOCGWINSZ
+	struct winsize ws;
+	if (ioctl(1, TIOCGWINSZ, &ws))  /* e.g., ENOSYS */
+		return 0;
+	return ws.ws_col;
+#else
+	return 0;
+#endif
+}
+
 /*
  * This is split up from the rest of git so that we can do
  * something different on Windows.
@@ -72,11 +87,16 @@ const char *git_pager(int stdout_is_tty)
 void setup_pager(void)
 {
 	const char *pager = git_pager(isatty(1));
+	int width;
 
-	if (!pager)
+	if (!pager || pager_in_use())
 		return;
 
 	setenv("GIT_PAGER_IN_USE", "true", 1);
+
+	width = retrieve_terminal_width();
+	if (width)
+		max_columns = width;
 
 	/* spawn the pager */
 	pager_argv[0] = pager;
@@ -109,4 +129,19 @@ int pager_in_use(void)
 	const char *env;
 	env = getenv("GIT_PAGER_IN_USE");
 	return env ? git_config_bool("GIT_PAGER_IN_USE", env) : 0;
+}
+
+int term_columns(void)
+{
+	char *col_string = getenv("COLUMNS");
+	int n_cols;
+
+	if (col_string && (n_cols = atoi(col_string)) > 0)
+		return n_cols;
+
+	if (spawned_pager && max_columns)
+		return max_columns;
+
+	n_cols = retrieve_terminal_width();
+	return n_cols ? n_cols : 80;
 }
