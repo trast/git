@@ -56,6 +56,10 @@ all::
 # FreeBSD can use either, but MinGW and some others need to use
 # libcharset.h's locale_charset() instead.
 #
+# Define CHARSET_LIB to you need to link with library other than -liconv to
+# use locale_charset() function.  On some platforms this needs to set to
+# -lcharset
+#
 # Define LIBC_CONTAINS_LIBINTL if your gettext implementation doesn't
 # need -lintl when linking.
 #
@@ -342,7 +346,7 @@ pathsep = :
 
 export prefix bindir sharedir sysconfdir gitwebdir localedir
 
-CC = gcc
+CC = cc
 AR = ar
 RM = rm -f
 DIFF = diff
@@ -460,6 +464,9 @@ PROGRAM_OBJS += upload-pack.o
 PROGRAM_OBJS += http-backend.o
 PROGRAM_OBJS += sh-i18n--envsubst.o
 PROGRAM_OBJS += credential-store.o
+
+# Binary suffix, set to .exe for Windows builds
+X =
 
 PROGRAMS += $(patsubst %.o,git-%$X,$(PROGRAM_OBJS))
 
@@ -1701,6 +1708,7 @@ endif
 
 ifdef HAVE_LIBCHARSET_H
 	BASIC_CFLAGS += -DHAVE_LIBCHARSET_H
+	EXTLIBS += $(CHARSET_LIB)
 endif
 
 ifdef HAVE_DEV_TTY
@@ -1784,15 +1792,17 @@ endif
 # data gathering
 PROFILE_DIR := $(CURDIR)
 
-ifeq "$(PROFILE)" "GEN"
+ifeq ("$(PROFILE)","GEN")
 	CFLAGS += -fprofile-generate=$(PROFILE_DIR) -DNO_NORETURN=1
 	EXTLIBS += -lgcov
 	export CCACHE_DISABLE=t
 	V=1
-else ifneq "$(PROFILE)" ""
+else
+ifneq ("$(PROFILE)","")
 	CFLAGS += -fprofile-use=$(PROFILE_DIR) -fprofile-correction -DNO_NORETURN=1
 	export CCACHE_DISABLE=t
 	V=1
+endif
 endif
 
 # Shell quote (do not use $(call) to accommodate ancient setups);
