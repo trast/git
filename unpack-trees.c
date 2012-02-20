@@ -1133,6 +1133,7 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 		}
 	}
 
+	o->result.cache_tree = o->src_index->cache_tree;
 	o->src_index = NULL;
 	ret = check_updates(o) ? (-2) : 0;
 	if (o->dst_index)
