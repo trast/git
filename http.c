@@ -41,6 +41,7 @@ static long curl_low_speed_limit = -1;
 static long curl_low_speed_time = -1;
 static int curl_ftp_no_epsv;
 static const char *curl_http_proxy;
+static int curl_http_proxyauthany = 0;
 static const char *curl_cookie_file;
 static struct credential http_auth = CREDENTIAL_INIT;
 static int http_proactive_auth;
@@ -190,6 +191,11 @@ static int http_options(const char *var, const char *value, void *cb)
 	}
 	if (!strcmp("http.proxy", var))
 		return git_config_string(&curl_http_proxy, var, value);
+	
+	if (!strcmp("http.proxyauthany", var))  {
+		curl_http_proxyauthany = git_config_bool(var, value);
+		return 0;
+	}
 
 	if (!strcmp("http.cookiefile", var))
 		return git_config_string(&curl_cookie_file, var, value);
@@ -297,6 +303,12 @@ static CURL *get_curl_handle(void)
 
 	if (curl_http_proxy)
 		curl_easy_setopt(result, CURLOPT_PROXY, curl_http_proxy);
+	
+#ifdef LIBCURL_CAN_HANDLE_AUTH_ANY	
+	if (curl_http_proxyauthany) {
+		curl_easy_setopt(result, CURLOPT_PROXYAUTH, CURLAUTH_ANY);
+	}
+#endif
 
 	return result;
 }
