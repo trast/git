@@ -42,7 +42,7 @@ test_expect_success 'init depot' '
 #
 # Generate these in a function to make it easy to use single quote marks.
 #
-write_scrub_scripts() {
+write_scrub_scripts () {
 	cat >"$TRASH_DIRECTORY/scrub_k.py" <<-\EOF &&
 	import re, sys
 	sys.stdout.write(re.sub(r'(?i)\$(Id|Header|Author|Date|DateTime|Change|File|Revision):[^$]*\$', r'$\1$', sys.stdin.read()))
@@ -61,16 +61,16 @@ test_expect_success 'scrub scripts' '
 # Compare $cli/file to its scrubbed version, should be different.
 # Compare scrubbed $cli/file to $git/file, should be same.
 #
-scrub_k_check() {
-	file=$1 &&
+scrub_k_check () {
+	file="$1" &&
 	scrub="$TRASH_DIRECTORY/$file" &&
 	"$PYTHON_PATH" "$TRASH_DIRECTORY/scrub_k.py" <"$git/$file" >"$scrub" &&
 	! test_cmp "$cli/$file" "$scrub" &&
 	test_cmp "$git/$file" "$scrub" &&
 	rm "$scrub"
 }
-scrub_ko_check() {
-	file=$1 &&
+scrub_ko_check () {
+	file="$1" &&
 	scrub="$TRASH_DIRECTORY/$file" &&
 	"$PYTHON_PATH" "$TRASH_DIRECTORY/scrub_ko.py" <"$git/$file" >"$scrub" &&
 	! test_cmp "$cli/$file" "$scrub" &&
@@ -227,7 +227,7 @@ test_expect_success 'add kwfile' '
 '
 
 p4_append_to_file () {
-	f=$1 &&
+	f="$1" &&
 	p4 edit -t ktext "$f" &&
 	echo "/* $(date) */" >>"$f" &&
 	p4 submit -d "appending a line in p4"
@@ -293,9 +293,93 @@ test_expect_success 'cope with rcs keyword file deletion' '
 	(
 		cd "$cli" &&
 		p4 sync &&
-		[ ! -f kwdelfile.c ]
+		! test -f kwdelfile.c
 	)
 '
+
+# If you add keywords in git of the form $Header$ then everything should
+# work fine without any special handling.
+test_expect_success 'Add keywords in git which match the default p4 values' '
+	test_when_finished cleanup_git &&
+	"$GITP4" clone --dest="$git" //depot &&
+	(
+		cd "$git" &&
+		echo "NewKW: \$Revision\$" >>kwfile1.c &&
+		git add kwfile1.c &&
+		git commit -m "Adding RCS keywords in git" &&
+		git config git-p4.skipSubmitEdit true &&
+		git config git-p4.attemptRCSCleanup true &&
+		"$GITP4" submit
+	) &&
+	(
+		cd "$cli" &&
+		p4 sync &&
+		test -f kwfile1.c &&
+		grep "NewKW.*Revision.*[0-9]" kwfile1.c
+
+	)
+'
+
+# If you add keywords in git of the form $Header:#1$ then things will fail
+# unless git-p4 takes steps to scrub the *git* commit.
+#
+test_expect_failure 'Add keywords in git which do not match the default p4 values' '
+	test_when_finished cleanup_git &&
+	"$GITP4" clone --dest="$git" //depot &&
+	(
+		cd "$git" &&
+		echo "NewKW2: \$Revision:1\$" >>kwfile1.c &&
+		git add kwfile1.c &&
+		git commit -m "Adding RCS keywords in git" &&
+		git config git-p4.skipSubmitEdit true &&
+		git config git-p4.attemptRCSCleanup true &&
+		"$GITP4" submit
+	) &&
+	(
+		cd "$cli" &&
+		p4 sync &&
+		grep "NewKW2.*Revision.*[0-9]" kwfile1.c
+
+	)
+'
+
+# Check that the existing merge conflict handling still works.
+# Modify kwfile1.c in git, and delete in p4. We should be able
+# to skip the git commit.
+#
+test_expect_success 'merge conflict handling still works' '
+	test_when_finished cleanup_git &&
+	(
+		cd "$cli" &&
+		echo "Hello:\$Id\$" >merge2.c &&
+		echo "World" >>merge2.c &&
+		p4 add -t ktext merge2.c &&
+		p4 submit -d "add merge test file"
+	) &&
+	"$GITP4" clone --dest="$git" //depot &&
+	(
+		cd "$git" &&
+		sed -e "/Hello/d" merge2.c >merge2.c.tmp &&
+		mv merge2.c.tmp merge2.c &&
+		git add merge2.c &&
+		git commit -m "Modifying merge2.c"
+	) &&
+	(
+		cd "$cli" &&
+		p4 delete merge2.c &&
+		p4 submit -d "remove merge test file"
+	) &&
+	(
+		cd "$git" &&
+		test -f merge2.c &&
+		git config git-p4.skipSubmitEdit true &&
+		git config git-p4.attemptRCSCleanup true &&
+		!(echo "s" | "$GITP4" submit) &&
+		git rebase --skip &&
+		! test -f merge2.c
+	)
+'
+
 
 test_expect_success 'kill p4d' '
 	kill_p4d

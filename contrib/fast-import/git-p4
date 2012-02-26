@@ -38,7 +38,7 @@ def p4_build_cmd(cmd):
 
     host = gitConfig("git-p4.host")
     if len(host) > 0:
-        real_cmd += ["-h", host]
+        real_cmd += ["-H", host]
 
     client = gitConfig("git-p4.client")
     if len(client) > 0:
@@ -190,16 +190,8 @@ def split_p4_type(p4type):
 # return the raw p4 type of a file (text, text+ko, etc)
 #
 def p4_type(file):
-    files = p4_read_pipe_lines(["files", file])
-    info = files[0]
-    m = re.search(r'\(([a-z0-9A-Z+]+)\)\s*$', info)
-    if m:
-        ret = m.group(1)
-        if verbose:
-            print "%s => %s" % (file, ret)
-        return ret
-    else:
-        die("Could not extract file type from '%s'" % info)
+    results = p4CmdList(["fstat", "-T", "headType", file])
+    return results[0]['headType']
 
 #
 # Given a type base and modifier, return a regexp matching
@@ -207,12 +199,20 @@ def p4_type(file):
 #
 def p4_keywords_regexp_for_type(base, type_mods):
     if base in ("text", "unicode", "binary"):
+        kwords = None
         if "ko" in type_mods:
-            return r'\$(Id|Header)[^$]*\$'
+            kwords = 'Id|Header'
         elif "k" in type_mods:
-            return r'\$(Id|Header|Author|Date|DateTime|Change|File|Revision)[^$]*\$'
+            kwords = 'Id|Header|Author|Date|DateTime|Change|File|Revision'
         else:
             return None
+        pattern = r"""
+            \$              # Starts with a dollar, followed by...
+            (%s)            # one of the keywords, followed by...
+            (:[^$]+)?       # possibly an old expansion, followed by...
+            \$              # another dollar
+            """ % kwords
+        return pattern
     else:
         return None
 
@@ -222,8 +222,11 @@ def p4_keywords_regexp_for_type(base, type_mods):
 # with kw expansion turned off.
 #
 def p4_keywords_regexp_for_file(file):
-    (type_base, type_mods) = split_p4_type(p4_type(file))
-    return p4_keywords_regexp_for_type(type_base, type_mods)
+    if not os.path.exists(file):
+        return None
+    else:
+        (type_base, type_mods) = split_p4_type(p4_type(file))
+        return p4_keywords_regexp_for_type(type_base, type_mods)
 
 def setP4ExecBit(file, mode):
     # Reopens an already open file and changes the execute bit to match
@@ -797,8 +800,9 @@ class P4Submit(Command, P4UserMap):
         try:
             outFile = os.fdopen(handle, "w+")
             inFile = open(file, "r")
+            regexp = re.compile(pattern, re.VERBOSE)
             for line in inFile.readlines():
-                line = re.sub(pattern, r'$\1$', line)
+                line = regexp.sub(r'$\1$', line)
                 outFile.write(line)
             inFile.close()
             outFile.close()
@@ -1038,22 +1042,19 @@ class P4Submit(Command, P4UserMap):
                 file = None
                 pattern = None
                 kwfiles = {}
-                for line in read_pipe_lines(diffcmd):
-                    # read diff lines: for each file reported, if it can have
-                    # keywords expanded, and the diff contains keywords, then
-                    # try zapping the p4 file.
-                    m = re.match(r'^diff --git a/(.*)\s+b/(.*)', line)
-                    if m:
-                        file = m.group(1)
-                        pattern = p4_keywords_regexp_for_file(file)
-                        next
+                for file in editedFiles | filesToDelete:
+                    # did this file's delta contain RCS keywords?
+                    pattern = p4_keywords_regexp_for_file(file)
 
                     if pattern:
-                        print line
-
-                    if pattern and re.search(pattern, line):
-                        print "got match on %s in %s in %s" % (pattern, line, file)
-                        kwfiles[file] = pattern
+                        # this file is a possibility...look for RCS keywords.
+                        regexp = re.compile(pattern, re.VERBOSE)
+                        for line in read_pipe_lines(["git", "diff", "%s^..%s" % (id, id), file]):
+                            if regexp.search(line):
+                                if verbose:
+                                    print "got keyword match on %s in %s in %s" % (pattern, line, file)
+                                kwfiles[file] = pattern
+                                break
 
                 for file in kwfiles:
                     if verbose:
@@ -1687,8 +1688,9 @@ class P4Sync(Command, P4UserMap):
         # even though in theory somebody may want that.
         pattern = p4_keywords_regexp_for_type(type_base, type_mods)
         if pattern:
+            regexp = re.compile(pattern, re.VERBOSE)
             text = ''.join(contents)
-            text = re.sub(pattern, r'$\1$', text)
+            text = regexp.sub(r'$\1$', text)
             contents = [ text ]
 
         self.gitStream.write("M %s inline %s\n" % (git_mode, relPath))
