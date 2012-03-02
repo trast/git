@@ -130,6 +130,7 @@ struct diff_options {
 
 	int stat_width;
 	int stat_name_width;
+	int stat_graph_width;
 	int stat_count;
 	const char *word_regex;
 	enum diff_words_type word_diff;
