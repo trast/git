@@ -1092,10 +1092,28 @@ static void show_file(const char * fmt, const char * name, int in_porcelain,
 	printf(fmt, name);
 }
 
+static struct index_state *istate_for_cmp;
+
+int cmp_by_inode(const void *a, const void *b)
+{
+	struct cache_entry *ca, *cb;
+
+	ca = istate_for_cmp->cache[*(const int *)a];
+	cb = istate_for_cmp->cache[*(const int *)b];
+
+	if (ca->ce_ino < cb->ce_ino)
+		return -1;
+	if (ca->ce_ino > cb->ce_ino)
+		return 1;
+	if (ce_stage(ca) < ce_stage(cb))
+		return -1;
+	return 1;
+}
+
 int refresh_index(struct index_state *istate, unsigned int flags, const char **pathspec,
 		  char *seen, const char *header_msg)
 {
-	int i;
+	int i, j;
 	int has_errors = 0;
 	int really = (flags & REFRESH_REALLY) != 0;
 	int allow_unmerged = (flags & REFRESH_UNMERGED) != 0;
@@ -1110,17 +1128,27 @@ int refresh_index(struct index_state *istate, unsigned int flags, const char **p
 	const char *typechange_fmt;
 	const char *added_fmt;
 	const char *unmerged_fmt;
+	int *by_inode_idx;
 
 	modified_fmt = (in_porcelain ? "M\t%s\n" : "%s: needs update\n");
 	deleted_fmt = (in_porcelain ? "D\t%s\n" : "%s: needs update\n");
 	typechange_fmt = (in_porcelain ? "T\t%s\n" : "%s needs update\n");
 	added_fmt = (in_porcelain ? "A\t%s\n" : "%s needs update\n");
 	unmerged_fmt = (in_porcelain ? "U\t%s\n" : "%s: needs merge\n");
-	for (i = 0; i < istate->cache_nr; i++) {
+
+	by_inode_idx = xmalloc(istate->cache_nr * sizeof(int));
+	for (i = 0; i < istate->cache_nr; i++)
+		by_inode_idx[i] = i;
+	istate_for_cmp = istate;
+	qsort(by_inode_idx, istate->cache_nr, sizeof(int), cmp_by_inode);
+
+	for (j = 0; j < istate->cache_nr; j++) {
 		struct cache_entry *ce, *new;
 		int cache_errno = 0;
 		int changed = 0;
 		int filtered = 0;
+
+		i = by_inode_idx[j];
 
 		ce = istate->cache[i];
 		if (ignore_submodules && S_ISGITLINK(ce->ce_mode))
