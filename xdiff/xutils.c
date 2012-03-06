@@ -21,8 +21,7 @@
  */
 
 #include "xinclude.h"
-
-
+#include "assert.h"
 
 
 long xdl_bogosqrt(long n) {
@@ -276,23 +275,94 @@ static unsigned long xdl_hash_record_with_whitespace(char const **data,
 	return ha;
 }
 
+#ifdef XDL_FAST_HASH
+
+#define ONEBYTES        0x0101010101010101ul
+#define NEWLINEBYTES    0x0a0a0a0a0a0a0a0aul
+#define HIGHBITS        0x8080808080808080ul
+     
+/* Return the high bit set in the first byte that is a zero */
+static inline unsigned long has_zero(unsigned long a)
+{
+	return ((a - ONEBYTES) & ~a) & HIGHBITS;
+}
+
+#if defined(__x86_64__) || defined(__i386__)
+static inline unsigned long ffz(unsigned long word)
+{
+        asm("bsf %1,%0"
+                : "=r" (word)
+                : "r" (~word));
+        return word;
+}
+#else
+static inline unsigned long ffz(unsigned long word)
+{
+	unsigned long i = 0;
+	while (word & 1) {
+		word >>= 1;
+		i++;
+	}
+	return i;
+}
+#endif
+
+unsigned long xdl_hash_record(char const **data, char const *top, long flags) {
+	unsigned long hash = 0;
+	unsigned long a, mask;
+	char const *ptr = *data;
+     
+	if (flags & XDF_WHITESPACE_FLAGS)
+		return xdl_hash_record_with_whitespace(data, top, flags);
+
+	a = 0;
+	ptr -= sizeof(unsigned long);
+	do {
+		hash = (hash + a) * 11;
+		ptr += sizeof(unsigned long);
+		a = *(unsigned long *)ptr;
+		/* Do we have any '\n' bytes in this word? */
+		mask = has_zero(a ^ NEWLINEBYTES);
+	} while (!mask && ptr < top);
+     
+	/* The mask *below* the first high bit set */
+	mask = (mask - 1) & ~mask;
+	mask >>= 7;
+	hash += a & mask;
+
+	/* Get the final path component length */
+	ptr += ffz(mask) / 8;
+
+	if (ptr < top) {
+		assert (*ptr == '\n');
+		ptr++;
+	}
+
+	*data = ptr;
+
+	return hash;
+}
+
+#else /* XDL_FAST_HASH */
 
 unsigned long xdl_hash_record(char const **data, char const *top, long flags) {
 	unsigned long ha = 5381;
 	char const *ptr = *data;
-
+     
 	if (flags & XDF_WHITESPACE_FLAGS)
 		return xdl_hash_record_with_whitespace(data, top, flags);
+
 
 	for (; ptr < top && *ptr != '\n'; ptr++) {
 		ha += (ha << 5);
 		ha ^= (unsigned long) *ptr;
 	}
-	*data = ptr < top ? ptr + 1: ptr;
 
+	*data = ptr < top ? ptr + 1: ptr;
 	return ha;
 }
 
+#endif /* XDL_FAST_HASH */
 
 unsigned int xdl_hashbits(unsigned int size) {
 	unsigned int val = 1, bits = 0;

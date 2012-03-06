@@ -867,6 +867,9 @@ EXTLIBS =
 # because maintaining the nesting to match is a pain.  If
 # we had "elif" things would have been much nicer...
 
+ifeq ($(uname_M),x86_64)
+	XDL_FAST_HASH = YesPlease
+endif
 ifeq ($(uname_S),OSF1)
 	# Need this for u_short definitions et al
 	BASIC_CFLAGS += -D_OSF_SOURCE
@@ -1738,6 +1741,10 @@ endif
 
 ifndef NO_MSGFMT_EXTENDED_OPTIONS
 	MSGFMT += --check --statistics
+endif
+
+ifneq (,$(XDL_FAST_HASH))
+	BASIC_CFLAGS += -DXDL_FAST_HASH
 endif
 
 ifeq ($(TCLTK_PATH),)
