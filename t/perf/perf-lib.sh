@@ -163,7 +163,7 @@ test_perf () {
 		else
 			echo "perf $test_count - $1:"
 		fi
-		for i in $(seq 1 $GIT_PERF_REPEAT_COUNT); do
+		for i in $(seq 0 $GIT_PERF_REPEAT_COUNT); do
 			say >&3 "running: $2"
 			if test_run_perf_ "$2"
 			then
@@ -184,7 +184,8 @@ test_perf () {
 			test_ok_ "$1"
 		fi
 		base="$perf_results_dir"/"$perf_results_prefix$(basename "$0" .sh)"."$test_count"
-		"$TEST_DIRECTORY"/perf/min_time.perl test_time.* >"$base".times
+		rm test_time.0
+		cat test_time.* >"$base".times
 	fi
 	echo >&3 ""
 }

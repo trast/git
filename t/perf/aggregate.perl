@@ -10,13 +10,22 @@ use Git;
 sub get_times {
 	my $name = shift;
 	open my $fh, "<", $name or return undef;
-	my $line = <$fh>;
-	return undef if not defined $line;
+	my $sum_rt = 0.0;
+	my $sum_u = 0.0;
+	my $sum_s = 0.0;
+	my $n = 0;
+	while (<$fh>) {
+		/^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?) (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)$/
+			or die "bad input line: $_";
+		my $rt = ((defined $1 ? $1 : 0.0)*60+$2)*60+$3;
+		$sum_rt += $rt;
+		$sum_u += $4;
+		$sum_s += $5;
+		$n++;
+	}
+	return undef if !$n;
 	close $fh or die "cannot close $name: $!";
-	$line =~ /^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?) (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)$/
-		or die "bad input line: $line";
-	my $rt = ((defined $1 ? $1 : 0.0)*60+$2)*60+$3;
-	return ($rt, $4, $5);
+	return ($sum_rt/$n, $sum_u/$n, $sum_s/$n);
 }
 
 sub format_times {
@@ -140,8 +149,8 @@ for my $t (@subtests) {
 	for my $i (0..$#dirs) {
 		my $d = $dirs[$i];
 		$times{$prefixes{$d}.$t} = [get_times("test-results/$prefixes{$d}$t.times")];
-		my ($r,$u,$s) = @{$times{$prefixes{$d}.$t}};
-		my $w = length format_times($r,$u,$s,$firstr);
+		my ($r,$u,$s,$sign) = @{$times{$prefixes{$d}.$t}};
+		my $w = length format_times($r,$u,$s,$sign,$firstr);
 		$colwidth[$i] = $w if $w > $colwidth[$i];
 		$firstr = $r unless defined $firstr;
 	}
