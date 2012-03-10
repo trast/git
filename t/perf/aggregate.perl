@@ -7,8 +7,12 @@ use lib "$FindBin::Bin/../../perl/blib/lib",
 	"$FindBin::Bin/../../perl/blib/arch/auto/Git";
 use Git;
 
+my $any_sign_printed = 0;
+
 sub get_times {
 	my $name = shift;
+	my $firstset = shift;
+	my $sig = "";
 	open my $fh, "<", $name or return undef;
 	my $sum_rt = 0.0;
 	my $sum_u = 0.0;
@@ -24,11 +28,21 @@ sub get_times {
 	}
 	return undef if !$n;
 	close $fh or die "cannot close $name: $!";
-	return ($sum_rt/$n, $sum_u/$n, $sum_s/$n);
+	if (defined $firstset &&
+	    open my $ph, "-|", "./t_test_score.sh $name $firstset 2>/dev/null") {
+		my $result = <$ph>;
+		close $ph or die "cannot close pipe to t_test_score.sh: $!";
+		chomp $result;
+		$sig = $result;
+		if ($sig ne "") {
+			$any_sign_printed = 1;
+		}
+	}
+	return ($sum_rt/$n, $sum_u/$n, $sum_s/$n, $sig);
 }
 
 sub format_times {
-	my ($r, $u, $s, $firstr) = @_;
+	my ($r, $u, $s, $sign, $firstr) = @_;
 	if (!defined $r) {
 		return "<missing>";
 	}
@@ -41,6 +55,7 @@ sub format_times {
 		} else {
 			$out .= " +inf";
 		}
+		$out .= $sign;
 	}
 	return $out;
 }
@@ -145,13 +160,17 @@ for my $i (0..$#dirs) {
 }
 for my $t (@subtests) {
 	my $firstr;
+	my $firstset;
 	for my $i (0..$#dirs) {
 		my $d = $dirs[$i];
-		$times{$prefixes{$d}.$t} = [get_times("test-results/$prefixes{$d}$t.times")];
+		$times{$prefixes{$d}.$t} = [get_times("test-results/$prefixes{$d}$t.times", $firstset)];
 		my ($r,$u,$s,$sign) = @{$times{$prefixes{$d}.$t}};
 		my $w = length format_times($r,$u,$s,$sign,$firstr);
 		$colwidth[$i] = $w if $w > $colwidth[$i];
-		$firstr = $r unless defined $firstr;
+		if (!defined $firstr) {
+			$firstr = $r;
+			$firstset = "test-results/$prefixes{$d}$t.times";
+		}
 	}
 }
 my $totalwidth = 3*@dirs+$descrlen;
@@ -169,9 +188,15 @@ for my $t (@subtests) {
 	my $firstr;
 	for my $i (0..$#dirs) {
 		my $d = $dirs[$i];
-		my ($r,$u,$s) = @{$times{$prefixes{$d}.$t}};
-		printf "   %-$colwidth[$i]s", format_times($r,$u,$s,$firstr);
+		my ($r,$u,$s,$sign) = @{$times{$prefixes{$d}.$t}};
+		printf "   %-$colwidth[$i]s", format_times($r,$u,$s,$sign,$firstr);
 		$firstr = $r unless defined $firstr;
 	}
 	print "\n";
 }
+
+if ($any_sign_printed) {
+	print "-"x$totalwidth, "\n";
+	print "Significance hints:  '.' 0.1  '*' 0.05  '**' 0.01  '***' 0.001\n"
+}
+
