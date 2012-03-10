@@ -52,7 +52,7 @@ while (scalar @ARGV) {
 	my $dir;
 	last if -f $arg or $arg eq "--";
 	if (! -d $arg) {
-		my $rev = Git::command_oneline(qw(rev-parse --verify), $arg);
+		my $rev = Git::command_oneline(qw(rev-parse --verify), $arg."^{commit}");
 		$dir = "build/".$rev;
 	} else {
 		$arg =~ s{/*$}{};
