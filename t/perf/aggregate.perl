@@ -15,12 +15,11 @@ sub get_times {
 	my $sum_s = 0.0;
 	my $n = 0;
 	while (<$fh>) {
-		/^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?) (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)$/
+		/^(\d+(?:\.\d+)?) (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)$/
 			or die "bad input line: $_";
-		my $rt = ((defined $1 ? $1 : 0.0)*60+$2)*60+$3;
-		$sum_rt += $rt;
-		$sum_u += $4;
-		$sum_s += $5;
+		$sum_rt += $1;
+		$sum_u += $2;
+		$sum_s += $3;
 		$n++;
 	}
 	return undef if !$n;

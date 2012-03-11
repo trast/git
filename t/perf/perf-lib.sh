@@ -185,7 +185,8 @@ test_perf () {
 		fi
 		base="$perf_results_dir"/"$perf_results_prefix$(basename "$0" .sh)"."$test_count"
 		rm test_time.0
-		cat test_time.* >"$base".times
+		perl -pe 's/(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)/((defined $1?$1:0)*60+$2)*60+$3/e' \
+			test_time.* >"$base".times
 	fi
 	echo >&3 ""
 }
