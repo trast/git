@@ -2,6 +2,9 @@
 
 use strict;
 use warnings;
+use FindBin;
+use lib "$FindBin::Bin/../../perl/blib/lib",
+	"$FindBin::Bin/../../perl/blib/arch/auto/Git";
 use Git;
 
 sub get_times {
