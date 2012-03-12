@@ -37,6 +37,11 @@ build_git_rev () {
 
 run_dirs_helper () {
 	mydir=${1%/}
+	case "$mydir" in
+		^*)
+			return
+			;;
+	esac
 	shift
 	while test $# -gt 0 -a "$1" != -- -a ! -f "$1"; do
 		shift
