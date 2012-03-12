@@ -153,7 +153,11 @@ test_perf () {
 	test "$#" = 2 ||
 	error "bug in the test script: not 2 or 3 parameters to test-expect-success"
 	export test_prereq
-	if ! test_skip "$@"
+	skipping=
+	test_skip "$@" && skipping=t
+	test -z "$GIT_PERF_TEST_ONLY" ||
+	test "$GIT_PERF_TEST_ONLY" = $this_test.$test_count || skipping=t
+	if test -z "$skipping"
 	then
 		base=$(basename "$0" .sh)
 		echo "$test_count" >>"$perf_results_dir"/$base.subtests
