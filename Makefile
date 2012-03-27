@@ -629,6 +629,7 @@ LIB_H += userdiff.h
 LIB_H += utf8.h
 LIB_H += xdiff-interface.h
 LIB_H += xdiff/xdiff.h
+LIB_H += xnotify.h
 
 LIB_OBJS += abspath.o
 LIB_OBJS += advice.o
@@ -758,6 +759,7 @@ LIB_OBJS += write_or_die.o
 LIB_OBJS += ws.o
 LIB_OBJS += wt-status.o
 LIB_OBJS += xdiff-interface.o
+LIB_OBJS += xnotify.o
 LIB_OBJS += zlib.o
 
 BUILTIN_OBJS += builtin/add.o

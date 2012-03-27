@@ -67,6 +67,9 @@ unsigned long pack_size_limit_cfg;
 /* Parallel index stat data preload? */
 int core_preload_index = 0;
 
+/* xnotify daemon: -1 not known yet, 0 disabled, >0 enabled, 2 found */
+int core_xnotify_daemon = -1;
+
 /* This is set by setup_git_dir_gently() and/or git_default_config() */
 char *git_work_tree_cfg;
 static char *work_tree;

@@ -12,6 +12,7 @@
 #include "commit.h"
 #include "blob.h"
 #include "resolve-undo.h"
+#include "xnotify.h"
 
 static struct cache_entry *refresh_cache_entry(struct cache_entry *ce, int really);
 
@@ -1026,6 +1027,10 @@ static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 		ce_mark_uptodate(ce);
 		return ce;
 	}
+	if (xnotify_path_unchanged(ce->name)) {
+		ce_mark_uptodate(ce);
+		return ce;
+	}
 
 	if (lstat(ce->name, &st) < 0) {
 		if (err)
@@ -1228,6 +1233,7 @@ static int read_index_extension(struct index_state *istate,
 
 int read_index(struct index_state *istate)
 {
+	xnotify_setup();
 	return read_index_from(istate, get_index_file());
 }
 

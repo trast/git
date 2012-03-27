@@ -11,6 +11,7 @@
 #include "refs.h"
 #include "resolve-undo.h"
 #include "parse-options.h"
+#include "xnotify.h"
 
 /*
  * Default to not allowing changes to the list of files. The
@@ -886,6 +887,7 @@ int cmd_update_index(int argc, const char **argv, const char *prefix)
 			die("Unable to write new index file");
 	}
 
+	xnotify_spawn_daemon();
 	rollback_lock_file(lock_file);
 
 	return has_errors ? 1 : 0;

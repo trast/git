@@ -15,6 +15,7 @@
 #include "builtin.h"
 #include "submodule.h"
 #include "sha1-array.h"
+#include "xnotify.h"
 
 struct blobinfo {
 	unsigned char sha1[20];
@@ -204,6 +205,7 @@ static void refresh_index_quietly(void)
 static int builtin_diff_files(struct rev_info *revs, int argc, const char **argv)
 {
 	unsigned int options = 0;
+	int ret;
 
 	while (1 < argc && argv[1][0] == '-') {
 		if (!strcmp(argv[1], "--base"))
@@ -236,7 +238,9 @@ static int builtin_diff_files(struct rev_info *revs, int argc, const char **argv
 		perror("read_cache_preload");
 		return -1;
 	}
-	return run_diff_files(revs, options);
+	ret = run_diff_files(revs, options);
+	xnotify_spawn_daemon();
+	return ret;
 }
 
 int cmd_diff(int argc, const char **argv, const char *prefix)

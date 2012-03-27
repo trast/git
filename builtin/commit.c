@@ -27,6 +27,7 @@
 #include "quote.h"
 #include "submodule.h"
 #include "gpg-interface.h"
+#include "xnotify.h"
 
 static const char * const builtin_commit_usage[] = {
 	"git commit [options] [--] <filepattern>...",
@@ -1235,6 +1236,8 @@ int cmd_status(int argc, const char **argv, const char *prefix)
 
 	read_cache_preload(s.pathspec);
 	refresh_index(&the_index, REFRESH_QUIET|REFRESH_UNMERGED, s.pathspec, NULL, NULL);
+	if (!s.pathspec)
+		xnotify_spawn_daemon();
 
 	fd = hold_locked_index(&index_lock, 0);
 	if (0 <= fd)
