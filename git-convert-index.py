@@ -1,8 +1,9 @@
 import socket
+import binascii
 import struct
 
 def ntohs(n):
-    return str(struct.unpack('!i', n)[0])
+    return str(struct.unpack('!I', n)[0])
 
 f = open(".git/index", "rb")
 
@@ -55,7 +56,7 @@ try:
         print "Truncated file size: " + ntohs(filesize)
         
         sha1 = f.read(20)
-        print "SHA1: not implemented yet"
+        print "SHA1: " + str(binascii.hexlify(sha1))
 
         flags = f.read(2)
         print "Flags: " + str(struct.unpack('!h', flags)[0])
