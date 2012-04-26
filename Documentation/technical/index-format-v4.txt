@@ -136,4 +136,71 @@ GIT index format
 
   1 nul byte to terminate the file name.
 
+== Extensions
+
+=== Cached tree
+
+  Cached tree extension contains pre-computed hashes for trees that can
+  be derived from the index. It helps speed up tree object generation
+  from index for a new commit.
+
+  When a path is updated in index, the path must be invalidated and
+  removed from tree cache.
+
+  The signature for this extension is { 'T', 'R', 'E', 'E' }.
+
+  A series of entries fill the entire extension; each of which
+  consists of:
+
+  - NUL-terminated path component (relative to its parent directory);
+
+  - ASCII decimal number of entries in the index that is covered by the
+    tree this entry represents (entry_count);
+
+  - A space (ASCII 32);
+
+  - ASCII decimal number that represents the number of subtrees this
+    tree has;
+
+  - A newline (ASCII 10); and
+
+  - 160-bit object name for the object that would result from writing
+    this span of index as a tree.
+
+  An entry can be in an invalidated state and is represented by having
+  -1 in the entry_count field. In this case, there is no object name
+  and the next entry starts immediately after the newline.
+
+  The entries are written out in the top-down, depth-first order.  The
+  first entry represents the root level of the repository, followed by the
+  first subtree---let's call this A---of the root level (with its name
+  relative to the root level), followed by the first subtree of A (with
+  its name relative to A), ...
+
+=== Resolve undo
+
+  A conflict is represented in the index as a set of higher stage entries.
+  When a conflict is resolved (e.g. with "git add path"), these higher
+  stage entries will be removed and a stage-0 entry with proper resoluton
+  is added.
+
+  When these higher stage entries are removed, they are saved in the
+  resolve undo extension, so that conflicts can be recreated (e.g. with
+  "git checkout -m"), in case users want to redo a conflict resolution
+  from scratch.
+
+  The signature for this extension is { 'R', 'E', 'U', 'C' }.
+
+  A series of entries fill the entire extension; each of which
+  consists of:
+
+  - NUL-terminated pathname the entry describes (relative to the root of
+    the repository, i.e. full pathname);
+
+  - Three NUL-terminated ASCII octal numbers, entry mode of entries in
+    stage 1 to 3 (a missing stage is represented by "0" in this field);
+    and
+
+  - At most three 160-bit object names of the entry in stages from 1 to 3
+    (nothing is written for a missing stage).
 
