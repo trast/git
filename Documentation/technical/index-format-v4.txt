@@ -1,0 +1,139 @@
+GIT index format
+================
+
+= The git index file has the following format
+
+  All binary numbers are in network byte order. Version 4 is described
+  here.
+
+   - A 16-byte header consisting of
+
+     4-byte signature:
+       The signature is { 'D', 'I', 'R', 'C' } (stands for "dircache")
+
+     4-byte version number:
+       The current supported versions are 2 and 3.
+
+     32-bit number of directories.
+
+     32-bit number of index entries.
+
+   - 16-byte offset to the extension. (Currently supported extensions are
+     cached tree and resolve undo).
+
+     64-bit number offset to the cached tree extension.
+
+     64-bit number offset to the resolve undo extension.
+
+   - A number of sorted directories (see below).
+
+   - 32-bit crc32 checksum for the header, extension offsets and directories
+
+   - A number of index entries (see below).
+
+   - Extensions
+
+     Extensions are identified by signature. Optional extensions can
+     be ignored if GIT does not understand them.
+
+     GIT currently supports cached tree and resolve undo extensions.
+
+     4-byte extension signature. If the first byte is 'A'..'Z' the
+     extension is optional and can be ignored.
+
+     32-bit size of the extension
+
+     Extension data
+
+     32-bit crc32 checksum of the extension data 
+
+== Directory entry
+  
+  Directory entries are sorted in ascending order by the name of their path
+  starting with the root.
+  
+  64-bit offset to the first file of a directory
+
+  Path names (variable length) relative to top level directory (without the
+    leading slash). '/' is used as path separator. '.' indicates the root
+    directory. The special patch components ".." and ".git" (without quotes)
+    are disallowed. Trailing slash is also disallowed.
+
+  1 nul byte to terminate the path.
+
+== File entry
+  
+  File entries are sorted in ascending order on the name field, after the
+  respective offset given by the directory entries.
+
+  32-bit ctime seconds, the last time a file's metadata changed
+    this is stat(2) data
+
+  32-bit ctime nanosecond fractions
+    this is stat(2) data
+
+  32-bit mtime seconds, the last time a file's data changed
+    this is stat(2) data
+
+  32-bit mtime nanosecond fractions
+    this is stat(2) data
+
+  32-bit dev
+    this is stat(2) data
+
+  32-bit ino
+    this is stat(2) data
+
+  32-bit mode, split into (high to low bits)
+
+    4-bit object type
+      valid values in binary are 1000 (regular file), 1010 (symbolic link)
+      and 1110 (gitlink)
+
+    3-bit unused
+
+    9-bit unix permission. Only 0755 and 0644 are valid for regular files.
+    Symbolic links and gitlinks have value 0 in this field.
+
+  32-bit uid
+    this is stat(2) data
+
+  32-bit gid
+    this is stat(2) data
+
+  32-bit file size
+    This is the on-disk size from stat(2), truncated to 32-bit.
+
+  160-bit SHA-1 for the represented object
+
+  A 16-bit 'flags' field split into (high to low bits)
+
+    1-bit assume-valid flag
+
+    1-bit extended flag (must be zero in version 2)
+
+    2-bit stage (during merge)
+
+    12-bit name length if the length is less than 0xFFF; otherwise 0xFFF
+    is stored in this field.
+
+  A 16-bit "extended flags" field (high to low bits).
+
+    1-bit reserved for future
+
+    1-bit skip-worktree flag (used by sparse checkout)
+
+    1-bit intent-to-add flag (used by "git add -N")
+
+    13-bit unused, must be zero
+
+  File name (variable length). The complete path name of the file will be
+    retrieved by using the directory entries located in the file before
+    the file entries. There is no leading slash.
+
+    The file name is encoded in 7-bit ASCII and the encoding cannot contain
+    a NUL byte.
+
+  1 nul byte to terminate the file name.
+
+
