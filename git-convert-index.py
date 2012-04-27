@@ -2,127 +2,109 @@ import socket
 import binascii
 import struct
 
-def ntohs(n):
+def convert(n):
     return str(struct.unpack('!I', n)[0])
 
 f = open(".git/index", "rb")
 fw = open(".git/index-v4", "wb")
 
-try:
-    # Signature
-    signature = f.read(4)
-    fw.write(signature)
-    print "Signature: " + signature
+# Signature
+#fw.write(signature)
+print "Signature: " + f.read(4)
 
-    version = f.read(4)
-    fw.write(version)
-    print "Version: " + ntohs(version)
+header = struct.unpack('!II', f.read(8))
+#fw.write(version)
+print "Version: " + str(header[0])
 
-    nrofentries = f.read(4)
-    fw.write(nrofentries)
-    print "Number of index entries: " + ntohs(nrofentries)
+#fw.write(nrofentries)
+print "Number of index entries: " + str(header[1])
 
+indexentries = []
+byte = f.read(1)
+i = 0
+# Read index entries
+while i < header[1]:
+    entry = struct.unpack('!IIIIIIIIII', byte + f.read(39)) # stat data
+    entry = entry + (str(binascii.hexlify(f.read(20))),)    # SHA-1
+
+    if (header[0] == 3):
+        entry = entry + struct.unpack('!hh', f.read(4))     # Flags + extended flags
+    else:
+        entry = entry + struct.unpack('!h', f.read(2))      # Flags
+
+    string = ""
     byte = f.read(1)
+    while byte != '\0':
+        string = string + byte
+        byte = f.read(1)
 
-    i = 0
-    # Read index entries
-    while i < int(ntohs(nrofentries)):
-        ctimesec = byte + f.read(3)
-        # Next header (Cache tree extension)
-        if ctimesec == "TREE":
-            break
-        print "ctime seconds: " + ntohs(ctimesec)
+    entry = entry + (string, )                              # Filename
 
-        ctimensec = f.read(4)
-        print "ctime nanoseconds: " + ntohs(ctimensec)
+    if (header[0] == 3):
+        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
+            'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
+            'xtflags', 'filename'), entry))
+    else:
+        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
+            'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
+            'filename'), entry))
 
-        mtimesec = f.read(4)
-        print "mtime seconds: " + ntohs(mtimesec)
+    while byte == '\0':
+        byte = f.read(1)
 
-        mtimensec = f.read(4)
-        print "mtime nanoseconds: " + ntohs(mtimensec)
+    indexentries.append(dictentry)
 
-        dev = f.read(4)
-        print "dev: " + ntohs(dev)
+    i = i + 1
 
-        ino = f.read(4)
-        print "ino: " + ntohs(ino)
+sup = f.read(3)
+byte = byte + sup
 
-        mode = f.read(4)
-        print "mode: " + ntohs(mode)
+print "Extension: " + byte
 
-        uid = f.read(4)
-        print "uid: " + ntohs(uid)
+#if byte == "TREE":
+if 0:                             # Not reading Tree extension
+    extensionsize = f.read(4)
+    print "Extensionsize: " + convert(extensionsize)
 
-        gid = f.read(4)
-        print "gid: " + ntohs(gid)
 
-        filesize = f.read(4)
-        print "Truncated file size: " + ntohs(filesize)
-        
-        sha1 = f.read(20)
-        print "SHA1: " + str(binascii.hexlify(sha1))
-
-        flags = f.read(2)
-        print "Flags: " + str(struct.unpack('!h', flags)[0])
-
-        if (ntohs(version) == 3):
-            xtflags = f.read(2)
-            print "Extended flags: " + str(struct.unpack('!h', xtflags)[0])
-
+    while 1:
         string = ""
         byte = f.read(1)
         while byte != '\0':
             string = string + byte
             byte = f.read(1)
 
-        print string
+        print "Path component: " + string
 
-        while byte == '\0':
+        string = ""
+        byte = f.read(1)
+        while byte != " ":
+            string = string + byte
             byte = f.read(1)
 
-        i = i + 1
+        print "Entry_count: " +  string
 
-    sup = f.read(3)
-    byte = byte + sup
-
-    print "Extension: " + byte
-
-    if byte == "TREE":
-        extensionsize = f.read(4)
-        print "Extensionsize: " + ntohs(extensionsize)
-
-
-        while 1:
-            string = ""
+        string = ""
+        byte = f.read(1)
+        while byte != "\n":
+            string = string + byte
             byte = f.read(1)
-            while byte != '\0':
-                string = string + byte
-                byte = f.read(1)
 
-            print "Path component: " + string
+        print "Number of subtrees: " + string
 
-            string = ""
-            byte = f.read(1)
-            while byte != " ":
-                string = string + byte
-                byte = f.read(1)
+        sha1 = f.read(20)
+        print "160-bit object name: " + str(binascii.hexlify(sha1))
 
-            print "Entry_count: " +  string
 
-            string = ""
-            byte = f.read(1)
-            while byte != "\n":
-                string = string + byte
-                byte = f.read(1)
 
-            print "Number of subtrees: " + string
+# Output
+for entry in indexentries:
+    print entry["filename"]
+    print "  ctime: " + str(entry["ctimesec"]) + ":" + str(entry["ctimensec"])
+    print "  mtime: " + str(entry["mtimesec"]) + ":" + str(entry["mtimensec"])
+    print "  dev: " + str(entry["dev"]) + "\tino: " + str(entry["ino"])
+    print "  uid: " + str(entry["uid"]) + "\tgid: " + str(entry["gid"])
+    print "  size: " + str(entry["filesize"]) + "\tflags: " + "%x" % entry["flags"]
 
-            sha1 = f.read(20)
-            print "160-bit object name: " + str(binascii.hexlify(sha1))
-
-    sha1 = f.read(20)
-    print "SHA1 over the whole file: " + str(binascii.hexlify(sha1))
-
-finally:
-    f.close()
+sha1 = f.read(20)
+print "SHA1 over the whole file: " + str(binascii.hexlify(sha1))
