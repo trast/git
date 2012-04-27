@@ -58,44 +58,68 @@ while i < header[1]:
 
 sup = f.read(3)
 byte = byte + sup
+extensiondata = []
 
-#if byte == "TREE":
-if 0:                             # Not reading Tree extension
+if byte == "TREE":
     extensionsize = f.read(4)
     print "Extensionsize: " + convert(extensionsize)
 
+    read = 0
+    subtreenr = []
+    subtree = []
+    listsize = -1
+    while read < int(convert(extensionsize)):
 
-    while 1:
-        string = ""
+        if listsize != -1:
+            subtreenr[listsize] -= 1
+            print subtreenr[listsize]
+
+            if subtreenr[listsize] < 0:
+                subtreenr.pop()
+                subtree.pop()
+                listsize -=1
+        
+        path = ""
         byte = f.read(1)
+        read += 1
         while byte != '\0':
-            string = string + byte
+            path += byte
             byte = f.read(1)
+            read += 1
 
-        print "Path component: " + string
 
-        string = ""
+        entry_count = ""
         byte = f.read(1)
+        read += 1
         while byte != " ":
-            string = string + byte
+            entry_count += byte
             byte = f.read(1)
+            read += 1
 
-        print "Entry_count: " +  string
-
-        string = ""
+        subtrees = ""
         byte = f.read(1)
+        read += 1
         while byte != "\n":
-            string = string + byte
+            subtrees += byte
             byte = f.read(1)
+            read += 1
 
-        print "Number of subtrees: " + string
+        if entry_count != -1:
+            subtreenr.append(int(subtrees))
+            subtree.append(path)
+            listsize += 1
 
-        sha1 = f.read(20)
-        print "160-bit object name: " + str(binascii.hexlify(sha1))
+            for p in subtree:
+                path = "/" + p + path
+            sha1 = f.read(20)
+            read += 20
+        else:
+            sha1 = "invalid"
 
+        extensiondata.append(dict({"path": path, "entry_count": entry_count,
+            "subtrees": subtrees, "sha1": binascii.hexlify(sha1)}))
 
-
-# Output
+# Output index entries
 for entry in indexentries:
     print entry["filename"]
     print "  ctime: " + str(entry["ctimesec"]) + ":" + str(entry["ctimensec"])
@@ -103,6 +127,10 @@ for entry in indexentries:
     print "  dev: " + str(entry["dev"]) + "\tino: " + str(entry["ino"])
     print "  uid: " + str(entry["uid"]) + "\tgid: " + str(entry["gid"])
     print "  size: " + str(entry["filesize"]) + "\tflags: " + "%x" % entry["flags"]
+
+# Output TREE Extension data
+for entry in extensiondata:
+    print entry["sha1"] + " " + entry["path"] + " (" + entry["entry_count"] + " entries, " + entry["subtrees"] + " subtrees)"
 
 sha1 = f.read(20)
 print "SHA1 over the whole file: " + str(binascii.hexlify(sha1))
