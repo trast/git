@@ -59,8 +59,6 @@ while i < header[1]:
 sup = f.read(3)
 byte = byte + sup
 
-print "Extension: " + byte
-
 #if byte == "TREE":
 if 0:                             # Not reading Tree extension
     extensionsize = f.read(4)
