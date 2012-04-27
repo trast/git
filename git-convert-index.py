@@ -82,9 +82,6 @@ if byte == "TREE":
             subtree.pop()
             listsize -= 1
 
-        print subtreenr
-        print subtree
-
         fpath = ""
         if listsize > 0: 
             for p in subtree:
@@ -114,14 +111,15 @@ if byte == "TREE":
         subtree.append(path)
         listsize += 1
 
-        if entry_count != -1:
-            sha1 = f.read(20)
+        if entry_count != "-1":
+            sha1 = binascii.hexlify(f.read(20))
             read += 20
         else:
+            print "sha invalid"
             sha1 = "invalid"
 
         extensiondata.append(dict({"path": fpath, "entry_count": entry_count,
-            "subtrees": subtrees, "sha1": binascii.hexlify(sha1)}))
+            "subtrees": subtrees, "sha1": sha1}))
 
 # Output index entries
 for entry in indexentries:
