@@ -1,6 +1,7 @@
 import socket
 import hashlib
 import binascii
+import zlib
 import struct
 import os.path
 
@@ -20,8 +21,11 @@ def fread(n):
 # fwrite {{{
 fw = open(".git/index-v4", "wb")
 writtenbytes = 0
+writtendata = ""
 def fwrite(data):
     global writtenbytes
+    global writtendata
+    writtendata += data
     writtenbytes += len(data)
     fw.write(data)
 # }}}
@@ -63,19 +67,21 @@ def readindexentries(f):
             byte = fread(1)
 
 
-        paths.add(os.path.dirname(string))
-        files.add(os.path.basename(string))
+        pathname = os.path.dirname(string)
+        filename = os.path.basename(string)
+        paths.add(pathname)
+        files.add(filename)
 
-        entry = entry + (string, )                              # Filename
+        entry = entry + (pathname, filename)           # Filename
 
         if (header["version"] == 3):
             dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
                 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
-                'xtflags', 'filename'), entry))
+                'xtflags', 'pathname', 'filename'), entry))
         else:
             dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
                 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
-                'filename'), entry))
+                'pathname', 'filename'), entry))
 
         while byte == '\0':
             byte = fread(1)
@@ -160,7 +166,10 @@ def printheader(header):
 # printindexentries {{{
 def printindexentries(indexentries):
     for entry in indexentries:
-        print entry["filename"]
+        if entry["pathname"] != "":
+            print entry["pathname"] + "/" + entry["filename"]
+        else:
+            print entry["filename"]
         print "  ctime: " + str(entry["ctimesec"]) + ":" + str(entry["ctimensec"])
         print "  mtime: " + str(entry["mtimesec"]) + ":" + str(entry["mtimensec"])
         print "  dev: " + str(entry["dev"]) + "\tino: " + str(entry["ino"])
@@ -175,13 +184,13 @@ def printextensiondata(extensiondata):
 # }}}
 
 # writeheader {{{
-def writeheader(f, header, paths, files):
+def writeheader(header, paths, files):
     fwrite(header["signature"])
     fwrite(struct.pack("!IIII", header["version"], len(paths), len(files), header["nrofentries"]))
 # }}}
 
 # writedirectories {{{
-def writedirectories(f, paths, treeextensiondata):
+def writedirectories(paths, treeextensiondata):
     offsets = dict()
     for p in paths:
         offsets[p] = writtenbytes
@@ -198,6 +207,60 @@ def writedirectories(f, paths, treeextensiondata):
             fwrite(struct.pack("!II", -1, 0))
     return offsets
 # }}}
+
+# writefiles {{{
+def writefiles(files):
+    offsets = dict()
+    for f in files:
+        offsets[f] = writtenbytes
+        fwrite(f)
+        fwrite("\0")
+    return offsets
+# }}}
+
+# writefileentries {{{
+def writefileentries(entries, fileoffsets):
+    offsets = dict()
+    for e in sorted(entries, key=lambda k: k['pathname']):
+        if e["pathname"] not in offsets:
+            offsets[e["pathname"]] = writtenbytes
+        fwrite(struct.pack("!IIIIIIIIII", e["ctimesec"], e["ctimensec"],
+            e["mtimesec"], e["mtimensec"], e["dev"], e["ino"], e["mode"],
+            e["uid"], e["gid"], e["filesize"]))
+        fwrite(binascii.unhexlify(e["sha1"]))
+
+        try:
+            fwrite(struct.pack("!III", e["flags"], e["xtflags"], 
+                fileoffsets[e["filename"]]))
+        except KeyError:
+            fwrite(struct.pack("!III", e["flags"], 0, 
+                fileoffsets[e["filename"]]))
+
+        writecrc32()
+    return offsets
+# }}}
+
+# writefileoffsets {{{
+def writefileoffsets(diroffsets, fileoffsets, dircrcoffset):
+    for d in sorted(diroffsets):
+        fw.seek(diroffsets[d])
+        fw.write(struct.pack("!Q", fileoffsets[d]))
+
+    # Calculate crc32
+    f.seek(0)
+    data = f.read(dircrcoffset)
+    fw.seek(dircrcoffset)
+    fw.write(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
+
+# }}}
+
+# writecrc32 {{{
+def writecrc32():
+    global writtendata
+    fwrite(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
+    writtendata = "" # Reset writtendata for next crc32
+# }}}
+
 
 header = readheader(f)
 
@@ -222,17 +285,14 @@ sha1read = f.read(20)
 print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
 
 if sha1.hexdigest() == binascii.hexlify(sha1read):
-    writeheader(fw, header, paths, files)
-    offsets = writedirectories(fw, sorted(paths), treeextensiondata)
+    writeheader(header, paths, files)
+    diroffsets = writedirectories(sorted(paths), treeextensiondata)
+    fileoffsets = writefiles(files)
+    dircrcoffset = writtenbytes
 
-    # Test for the offsets
-    i = 1
-    for p in paths:
-        print offsets[p]
-        fw.seek(offsets[p])
-        fw.write(struct.pack("!Q", i))
-        i += 1
-
-    print "Write index"
-    # Write new index
-
+    # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
+    writecrc32()
+    fileoffsets = writefileentries(indexentries, fileoffsets)
+    writefileoffsets(diroffsets, fileoffsets, dircrcoffset)
+else:
+    print "File is corrupted"
