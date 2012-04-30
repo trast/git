@@ -192,10 +192,27 @@ def writeheader(header, paths, files):
 # writedirectories {{{
 def writedirectories(paths, treeextensiondata):
     offsets = dict()
+    subtreenr = dict()
+    # Calculate subtree numbers
+    for p in sorted(paths, reverse=True):
+        splited = p.split("/")
+        if p not in subtreenr:
+            subtreenr[p] = 0
+        if len(splited) > 1:
+            i = 0
+            path = ""
+            while i < len(splited) - 1:
+                path += "/" + splited[i]
+                i += 1
+            if path[1:] not in subtreenr:
+                subtreenr[path[1:]] = 1
+            else:
+                subtreenr[path[1:]] += 1
+    
     for p in paths:
         offsets[p] = writtenbytes
         fwrite(struct.pack("!Q", 0))
-        fwrite(p + "\0")
+        fwrite(p.split("/")[-1] + "\0")
         p += "/"
         if p in treeextensiondata:
             fwrite(struct.pack("!ll", int(treeextensiondata[p]["entry_count"]), int(treeextensiondata[p]["subtrees"])))
@@ -203,8 +220,7 @@ def writedirectories(paths, treeextensiondata):
                 fwrite(binascii.unhexlify(treeextensiondata[p]["sha1"]))
 
         else: # If there is no cache-tree data we assume the entry is invalid
-            # TODO: Subtree stuff
-            fwrite(struct.pack("!II", -1, 0))
+            fwrite(struct.pack("!II", -1, subtreenr[p]))
     return offsets
 # }}}
 
@@ -247,8 +263,8 @@ def writefileoffsets(diroffsets, fileoffsets, dircrcoffset):
         fw.write(struct.pack("!Q", fileoffsets[d]))
 
     # Calculate crc32
-    f.seek(0)
-    data = f.read(dircrcoffset)
+    #f.seek(0)
+    #data = f.read(dircrcoffset)
     fw.seek(dircrcoffset)
     fw.write(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
 
@@ -266,11 +282,11 @@ header = readheader(f)
 
 indexentries, byte, paths, files = readindexentries(f)
 
-sup = fread(3)
-byte = byte + sup
+ext = fread(3)
+ext = byte + ext
 extensiondata = []
 
-if byte == "TREE":
+if ext == "TREE":
     treeextensiondata = readextensiondata(f)
 
 # printheader(header)
