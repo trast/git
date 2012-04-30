@@ -176,14 +176,14 @@ def readreucextensiondata(f):
         while i < 3:
             byte = fread(1)
             read += 1
-            nr = ""
+            mode = ""
             while byte != '\0':
-                nr += byte
+                mode += byte
                 byte = fread(1)
                 read += 1
             i += 1
 
-            entry_mode.append(int(nr))
+            entry_mode.append(int(mode, 8))
 
         i = 0
         obj_names = list()
@@ -329,8 +329,23 @@ def writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
 
 # writev4_0reucextensiondata {{{
 def writev4_0reucextensiondata(data):
-    pass
-
+    global writtenbytes
+    offset = writtenbytes
+    for d in data:
+        fwrite(d["path"])
+        fwrite("\0")
+        stages = set()
+        fwrite(struct.pack("!b", 0))
+        for i in xrange(0, 2):
+            fwrite(struct.pack("!i", d["entry_mode" + str(i)]))
+            if d["entry_mode" + str(i)] != 0:
+                stages.add(i)
+            
+        for i in sorted(stages):
+            fwrite(d["obj_names" + str(i)])
+    writecrc32()
+    fw.seek(20)
+    fw.write(struct.pack("!Q", offset))
 # }}}
 
 # }}}
@@ -396,7 +411,7 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
     # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
     writecrc32()
     fileoffsets = writev4_0fileentries(indexentries, fileoffsets)
-    writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
     writev4_0reucextensiondata(reucextensiondata)
+    writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
 else:
     print "File is corrupted"
