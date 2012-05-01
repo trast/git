@@ -70,9 +70,11 @@ def readindexentries(f):
 
         string = ""
         byte = fread(1)
+        readbytes = 1
         while byte != '\0':
             string = string + byte
             byte = fread(1)
+            readbytes += 1
 
         pathname = os.path.dirname(string)
         filename = os.path.basename(string)
@@ -90,8 +92,14 @@ def readindexentries(f):
                 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
                 'pathname', 'filename'), entry))
 
-        while byte == '\0':
+        if header["version"] == 2:
+            j = 8 - (readbytes + 5) % 8
+        else:
+            j = 8 - (readbytes + 1) % 8
+
+        while byte == '\0' and j > 0:
             byte = fread(1)
+            j -= 1
 
         indexentries.append(dictentry)
 
