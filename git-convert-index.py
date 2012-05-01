@@ -1,13 +1,15 @@
-import socket
+#!/usr/bin/env python
+
 import hashlib
 import binascii
-import zlib
 import struct
 import os.path
 
 # fread {{{
 f = open(".git/index", "rb")
 filedata = ""
+
+
 def fread(n):
     global filedata
     data = f.read(n)
@@ -18,10 +20,13 @@ def fread(n):
     return data
 # }}}
 
+
 # fwrite {{{
 fw = open(".git/index-v4", "wb")
 writtenbytes = 0
 writtendata = ""
+
+
 def fwrite(data):
     global writtenbytes
     global writtendata
@@ -30,10 +35,12 @@ def fwrite(data):
     fw.write(data)
 # }}}
 
+
 # convert {{{
 def convert(n):
     return str(struct.unpack('!I', n)[0])
 # }}}
+
 
 # readheader {{{
 def readheader(f):
@@ -42,6 +49,7 @@ def readheader(f):
     header = struct.unpack('!II', fread(8))
     return dict({"signature": signature, "version": header[0], "nrofentries": header[1]})
 # }}}
+
 
 # readindexentries {{{
 def readindexentries(f):
@@ -52,20 +60,19 @@ def readindexentries(f):
     i = 0
     # Read index entries
     while i < header["nrofentries"]:
-        entry = struct.unpack('!IIIIIIIIII', byte + fread(39)) # stat data
-        entry = entry + (str(binascii.hexlify(fread(20))),)    # SHA-1
+        entry = struct.unpack('!IIIIIIIIII', byte + fread(39))  # stat data
+        entry = entry + (str(binascii.hexlify(fread(20))),)     # SHA-1
 
         if (header["version"] == 3):
-            entry = entry + struct.unpack('!hh', fread(4))     # Flags + extended flags
+            entry = entry + struct.unpack('!hh', fread(4))      # Flags + extended flags
         else:
-            entry = entry + struct.unpack('!h', fread(2))      # Flags
+            entry = entry + struct.unpack('!h', fread(2))       # Flags
 
         string = ""
         byte = fread(1)
         while byte != '\0':
             string = string + byte
             byte = fread(1)
-
 
         pathname = os.path.dirname(string)
         filename = os.path.basename(string)
@@ -75,11 +82,11 @@ def readindexentries(f):
         entry = entry + (pathname, filename)           # Filename
 
         if (header["version"] == 3):
-            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
+            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec',
                 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
                 'xtflags', 'pathname', 'filename'), entry))
         else:
-            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec', 
+            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec',
                 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
                 'pathname', 'filename'), entry))
 
@@ -92,6 +99,7 @@ def readindexentries(f):
 
     return indexentries, byte, paths, files
 # }}}
+
 
 # readextensiondata {{{
 def readextensiondata(f):
@@ -117,9 +125,9 @@ def readextensiondata(f):
             listsize -= 1
 
         fpath = ""
-        if listsize > 0: 
+        if listsize > 0:
             for p in subtree:
-                if p != "": 
+                if p != "":
                     fpath += p + "/"
             subtreenr[listsize] = subtreenr[listsize] - 1
         fpath += path + "/"
@@ -155,6 +163,7 @@ def readextensiondata(f):
 
     return extensiondata
 # }}}
+
 
 # readreucextensiondata {{{
 def readreucextensiondata(f):
@@ -201,12 +210,14 @@ def readreucextensiondata(f):
 
 # }}}
 
+
 # printheader {{{
 def printheader(header):
     print "Signature: " + header["signature"]
     print "Version: " + str(header["version"])
     print "Number of entries: " + str(header["nrofentries"])
 # }}}
+
 
 # printindexentries {{{
 def printindexentries(indexentries):
@@ -222,11 +233,13 @@ def printindexentries(indexentries):
         print "  size: " + str(entry["filesize"]) + "\tflags: " + "%x" % entry["flags"]
 # }}}
 
+
 # {{{ printextensiondata
 def printextensiondata(extensiondata):
     for entry in extensiondata.viewvalues():
         print entry["sha1"] + " " + entry["path"] + " (" + entry["entry_count"] + " entries, " + entry["subtrees"] + " subtrees)"
 # }}}
+
 
 # printreucextensiondata {{{
 def printreucextensiondata(extensiondata):
@@ -236,12 +249,14 @@ def printreucextensiondata(extensiondata):
         print "Objectnames 1: " + binascii.hexlify(e["obj_names0"]) + " Objectnames 2: " + binascii.hexlify(e["obj_names1"]) + " Objectnames 3: " + binascii.hexlify(e["obj_names2"])
 # }}}
 
+
 # Write stuff for index-v4 draft0 {{{
 # writev4_0header {{{
 def writev4_0header(header, paths, files):
     fwrite(header["signature"])
     fwrite(struct.pack("!IIIIQ", header["version"], len(paths), len(files), header["nrofentries"], 0))
 # }}}
+
 
 # writev4_0directories {{{
 def writev4_0directories(paths, treeextensiondata):
@@ -262,7 +277,7 @@ def writev4_0directories(paths, treeextensiondata):
                 subtreenr[path[1:]] = 1
             else:
                 subtreenr[path[1:]] += 1
-    
+
     for p in paths:
         offsets[p] = writtenbytes
         fwrite(struct.pack("!Q", 0))
@@ -273,13 +288,11 @@ def writev4_0directories(paths, treeextensiondata):
             if (treeextensiondata[p]["entry_count"] != "-1"):
                 fwrite(binascii.unhexlify(treeextensiondata[p]["sha1"]))
 
-        else: # If there is no cache-tree data we assume the entry is invalid
-            if p != "/":
-                fwrite(struct.pack("!ii", -1, subtreenr[p]))
-            else:
-                fwrite(struct.pack("!ii", -1, subtreenr[""]))
+        else:  # If there is no cache-tree data we assume the entry is invalid
+            fwrite(struct.pack("!ii", -1, subtreenr[p.strip("/")]))
     return offsets
 # }}}
+
 
 # writev4_0files {{{
 def writev4_0files(files):
@@ -290,6 +303,7 @@ def writev4_0files(files):
         fwrite("\0")
     return offsets
 # }}}
+
 
 # writev4_0fileentries {{{
 def writev4_0fileentries(entries, fileoffsets):
@@ -303,15 +317,16 @@ def writev4_0fileentries(entries, fileoffsets):
         fwrite(binascii.unhexlify(e["sha1"]))
 
         try:
-            fwrite(struct.pack("!III", e["flags"], e["xtflags"], 
+            fwrite(struct.pack("!III", e["flags"], e["xtflags"],
                 fileoffsets[e["filename"]]))
         except KeyError:
-            fwrite(struct.pack("!III", e["flags"], 0, 
+            fwrite(struct.pack("!III", e["flags"], 0,
                 fileoffsets[e["filename"]]))
 
         writecrc32()
     return offsets
 # }}}
+
 
 # writev4_0fileoffsets {{{
 def writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
@@ -327,6 +342,7 @@ def writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
 
 # }}}
 
+
 # writev4_0reucextensiondata {{{
 def writev4_0reucextensiondata(data):
     global writtenbytes
@@ -340,7 +356,7 @@ def writev4_0reucextensiondata(data):
             fwrite(struct.pack("!i", d["entry_mode" + str(i)]))
             if d["entry_mode" + str(i)] != 0:
                 stages.add(i)
-            
+
         for i in sorted(stages):
             fwrite(d["obj_names" + str(i)])
     writecrc32()
@@ -350,11 +366,12 @@ def writev4_0reucextensiondata(data):
 
 # }}}
 
+
 # writecrc32 {{{
 def writecrc32():
     global writtendata
     fwrite(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
-    writtendata = "" # Reset writtendata for next crc32
+    writtendata = ""  # Reset writtendata for next crc32
 # }}}
 
 
