@@ -7,16 +7,13 @@ import os.path
 
 # fread {{{
 f = open(".git/index", "rb")
-filedata = ""
+filedata = list()
 
 
 def fread(n):
     global filedata
     data = f.read(n)
-    if filedata == "":
-        filedata = data
-    else:
-        filedata += data
+    filedata.append(data)
     return data
 # }}}
 
@@ -67,6 +64,9 @@ def readindexentries(f):
             entry = entry + struct.unpack('!hh', fread(4))      # Flags + extended flags
         else:
             entry = entry + struct.unpack('!h', fread(2))       # Flags
+
+        print bin(entry[11])
+        print (entry[11] & 0b0011000000000000) / 0b001000000000000
 
         string = ""
         byte = fread(1)
@@ -424,7 +424,7 @@ else:
 print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
 
 sha1 = hashlib.sha1()
-sha1.update(filedata)
+sha1.update("".join(filedata))
 print "SHA1 over filedata: " + str(sha1.hexdigest())
 
 if sha1.hexdigest() == binascii.hexlify(sha1read):
