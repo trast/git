@@ -51,6 +51,7 @@ def readheader(f):
 # readindexentries {{{
 def readindexentries(f):
     indexentries = []
+    conflictedentries = []
     paths = set()
     files = set()
     byte = fread(1)
@@ -64,9 +65,6 @@ def readindexentries(f):
             entry = entry + struct.unpack('!hh', fread(4))      # Flags + extended flags
         else:
             entry = entry + struct.unpack('!h', fread(2))       # Flags
-
-        print bin(entry[11])
-        print (entry[11] & 0b0011000000000000) / 0b001000000000000
 
         string = ""
         byte = fread(1)
@@ -101,11 +99,18 @@ def readindexentries(f):
             byte = fread(1)
             j -= 1
 
-        indexentries.append(dictentry)
+        stage = (entry[11] & 0b0011000000000000) / 0b001000000000000
+
+        if stage == 0:      # Not conflicted
+            indexentries.append(dictentry)
+        else:                   # Conflicted
+            if stage == 1:  # Write the stage 1 entry to the main index, to avoid rewriting the whole index once the conflict is resolved
+                indexentries.append(dictentry)
+            conflictedentries.append(dictentry)
 
         i = i + 1
 
-    return indexentries, byte, paths, files
+    return indexentries, conflictedentries, byte, paths, files
 # }}}
 
 
@@ -259,15 +264,15 @@ def printreucextensiondata(extensiondata):
 
 
 # Write stuff for index-v4 draft0 {{{
-# writev4_0header {{{
-def writev4_0header(header, paths, files):
+# writev5_0header {{{
+def writev5_0header(header, paths, files):
     fwrite(header["signature"])
     fwrite(struct.pack("!IIIIQ", header["version"], len(paths), len(files), header["nrofentries"], 0))
 # }}}
 
 
-# writev4_0directories {{{
-def writev4_0directories(paths, treeextensiondata):
+# writev5_0directories {{{
+def writev5_0directories(paths, treeextensiondata):
     offsets = dict()
     subtreenr = dict()
     # Calculate subtree numbers
@@ -302,8 +307,8 @@ def writev4_0directories(paths, treeextensiondata):
 # }}}
 
 
-# writev4_0files {{{
-def writev4_0files(files):
+# writev5_0files {{{
+def writev5_0files(files):
     offsets = dict()
     for f in files:
         offsets[f] = writtenbytes
@@ -313,8 +318,8 @@ def writev4_0files(files):
 # }}}
 
 
-# writev4_0fileentries {{{
-def writev4_0fileentries(entries, fileoffsets):
+# writev5_0fileentries {{{
+def writev5_0fileentries(entries, fileoffsets):
     offsets = dict()
     for e in sorted(entries, key=lambda k: k['pathname']):
         if e["pathname"] not in offsets:
@@ -336,8 +341,8 @@ def writev4_0fileentries(entries, fileoffsets):
 # }}}
 
 
-# writev4_0fileoffsets {{{
-def writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
+# writev5_0fileoffsets {{{
+def writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
     for d in sorted(diroffsets):
         fw.seek(diroffsets[d])
         fw.write(struct.pack("!Q", fileoffsets[d]))
@@ -351,8 +356,8 @@ def writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
 # }}}
 
 
-# writev4_0reucextensiondata {{{
-def writev4_0reucextensiondata(data):
+# writev5_0reucextensiondata {{{
+def writev5_0reucextensiondata(data):
     global writtenbytes
     offset = writtenbytes
     for d in data:
@@ -372,6 +377,12 @@ def writev4_0reucextensiondata(data):
     fw.write(struct.pack("!Q", offset))
 # }}}
 
+
+# writev5_0conflicteddata {{{
+def writev5_0conflicteddata(conflicteddata):
+    print "Not implemented yet"
+# }}}
+
 # }}}
 
 
@@ -385,7 +396,7 @@ def writecrc32():
 
 header = readheader(f)
 
-indexentries, byte, paths, files = readindexentries(f)
+indexentries, conflictedentries, byte, paths, files = readindexentries(f)
 
 filedata = filedata[:-1]
 ext = byte + f.read(3)
@@ -428,15 +439,16 @@ sha1.update("".join(filedata))
 print "SHA1 over filedata: " + str(sha1.hexdigest())
 
 if sha1.hexdigest() == binascii.hexlify(sha1read):
-    writev4_0header(header, paths, files)
-    diroffsets = writev4_0directories(sorted(paths), treeextensiondata)
-    fileoffsets = writev4_0files(files)
+    writev5_0header(header, paths, files)
+    diroffsets = writev5_0directories(sorted(paths), treeextensiondata)
+    fileoffsets = writev5_0files(files)
     dircrcoffset = writtenbytes
 
     # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
     writecrc32()
-    fileoffsets = writev4_0fileentries(indexentries, fileoffsets)
-    writev4_0reucextensiondata(reucextensiondata)
-    writev4_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
+    fileoffsets = writev5_0fileentries(indexentries, fileoffsets)
+    writev5_0reucextensiondata(reucextensiondata)
+    writev5_0conflicteddata(conflictedentries)
+    writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
 else:
     print "File is corrupted"
