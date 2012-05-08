@@ -4,6 +4,7 @@ import hashlib
 import binascii
 import struct
 import os.path
+from collections import defaultdict
 
 # fread {{{
 f = open(".git/index", "rb")
@@ -19,7 +20,7 @@ def fread(n):
 
 
 # fwrite {{{
-fw = open(".git/index-v4", "wb")
+fw = open(".git/index-v5", "wb")
 writtenbytes = 0
 writtendata = ""
 
@@ -53,7 +54,8 @@ def readindexentries(f):
     indexentries = []
     conflictedentries = []
     paths = set()
-    files = set()
+    files = list()
+    filedirs = defaultdict(list)
     byte = fread(1)
     i = 0
     # Read index entries
@@ -77,7 +79,8 @@ def readindexentries(f):
         pathname = os.path.dirname(string)
         filename = os.path.basename(string)
         paths.add(pathname)
-        files.add(filename)
+        files.append(filename)
+        filedirs[pathname].append(filename)
 
         entry = entry + (pathname, filename)           # Filename
 
@@ -110,7 +113,7 @@ def readindexentries(f):
 
         i = i + 1
 
-    return indexentries, conflictedentries, byte, paths, files
+    return indexentries, conflictedentries, byte, paths, files, filedirs
 # }}}
 
 
@@ -263,7 +266,7 @@ def printreucextensiondata(extensiondata):
 # }}}
 
 
-# Write stuff for index-v4 draft0 {{{
+# Write stuff for index-v5 draft0 {{{
 # writev5_0header {{{
 def writev5_0header(header, paths, files):
     fwrite(header["signature"])
@@ -386,6 +389,85 @@ def writev5_0conflicteddata(conflicteddata):
 # }}}
 
 
+# Write stuff for index-v5 draft1 {{{
+# Write header {{{
+def writev5_1header(header, files, paths):
+    fwrite(header["signature"])
+    fwrite(struct.pack("!III", header["version"], len(paths), len(files)))
+# }}}
+
+
+# Write fake directory offsets which can only be filled in later {{{
+def writev5_1fakediroffsets(paths):
+    for p in paths:
+        fwrite(struct.pack("!I", 0))
+# }}}
+
+
+# Write directories {{{
+def writev5_1directories(paths):
+    diroffsets = list()
+    dirwritedataoffsets = dict()
+    for p in sorted(paths):
+        diroffsets.append(writtendata)
+        dirwritedataoffsets[p] = writtendata
+
+        # pathname
+        if p == "":
+            fwrite("\0")
+        else:
+            fwrite(p + "/\0")
+
+        # flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname, dircrc
+        # All this fields will be filled out when the rest of the index
+        # is written
+        fwrite(struct.pack("!HIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
+    return diroffsets, dirwritedataoffsets
+# }}}
+
+
+# Write fake file offsets {{{
+def writev5_1fakefileoffsets(files):
+    beginning = writtenbytes
+    for f in files:
+        fwrite(struct.pack("!I", 0))
+    return beginning
+# }}}
+
+
+# Write directory offsets for real {{{
+def writev5_1diroffsets(offsets):
+    pass
+# }}}
+
+
+# Write file data {{{
+def writev5_1filedata(filedirs, indexentries):
+    for entry in sorted(indexentries, key=lambda k: k['pathname']):
+        fwrite(entry["filename"] + "\0")
+
+        # Prepare flags
+        # TODO: Consider extended flags
+        flags = entry["flags"] & 0b1000000000000000
+        flags += (entry["flags"] & 0b0011000000000000) * 2
+        fwrite(struct.pack("!I", flags))
+
+        # mode
+        fwrite(struct.pack("!I", entry["mode"]))
+
+        # mtime
+        fwrite(struct.pack("!I", entry["mtimesec"]))
+        fwrite(struct.pack("!I", entry["mtimensec"]))
+
+        # calculate crc for stat data
+        crc = binascii.crc32(struct.pack("!IIIIIII", entry["ctimesec"], entry["ctimensec"], entry["ino"], entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
+        fwrite(struct.pack("!i", crc))
+# }}}
+
+# }}}
+
+
 # writecrc32 {{{
 def writecrc32():
     global writtendata
@@ -396,7 +478,7 @@ def writecrc32():
 
 header = readheader(f)
 
-indexentries, conflictedentries, byte, paths, files = readindexentries(f)
+indexentries, conflictedentries, byte, paths, files, filedirs = readindexentries(f)
 
 filedata = filedata[:-1]
 ext = byte + f.read(3)
@@ -439,16 +521,27 @@ sha1.update("".join(filedata))
 print "SHA1 over filedata: " + str(sha1.hexdigest())
 
 if sha1.hexdigest() == binascii.hexlify(sha1read):
-    writev5_0header(header, paths, files)
-    diroffsets = writev5_0directories(sorted(paths), treeextensiondata)
-    fileoffsets = writev5_0files(files)
-    dircrcoffset = writtenbytes
+    # Write v5_0 {{{
+    # writev5_0header(header, paths, files)
+    # diroffsets = writev5_0directories(sorted(paths), treeextensiondata)
+    # fileoffsets = writev5_0files(files)
+    # dircrcoffset = writtenbytes
 
-    # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
-    writecrc32()
-    fileoffsets = writev5_0fileentries(indexentries, fileoffsets)
-    writev5_0reucextensiondata(reucextensiondata)
-    writev5_0conflicteddata(conflictedentries)
-    writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
+    # # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
+    # writecrc32()
+    # fileoffsets = writev5_0fileentries(indexentries, fileoffsets)
+    # writev5_0reucextensiondata(reucextensiondata)
+    # writev5_0conflicteddata(conflictedentries)
+    # writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
+    # }}}
+
+    # Write v5_1 {{{
+    writev5_1header(header, paths, files)
+    writev5_1fakediroffsets(paths)
+    diroffsets, dirwritedataoffsets = writev5_1directories(paths)
+    fileoffsetbeginning = writev5_1fakefileoffsets(files)
+    foffsets = writev5_1filedata(filedirs, indexentries)
+    writev5_1diroffsets(diroffsets)
+    # }}}
 else:
     print "File is corrupted"
