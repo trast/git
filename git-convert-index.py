@@ -174,7 +174,11 @@ def readextensiondata(f):
         else:
             sha1 = "invalid"
 
-        extensiondata[fpath] = dict({"path": fpath, "entry_count": entry_count,
+        if sha1 == "invalid":
+            extensiondata[fpath] = dict({"path": fpath, "entry_count": entry_count,
+            "subtrees": subtrees})
+        else:
+            extensiondata[fpath] = dict({"path": fpath, "entry_count": entry_count,
             "subtrees": subtrees, "sha1": sha1})
 
     return extensiondata
@@ -550,14 +554,32 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
             fwrite(struct.pack("!I", 0))
 
         try:
-            fwrite(d[1]["objname"])
+            fwrite(binascii.unhexlify(d[1]["objname"]))
         except KeyError:
             fwrite(struct.pack("!IIIII", 0, 0, 0, 0, 0))
 
         writecrc32()
-
 # }}}
 
+
+# Compile cachetreedata and factor it into the dirdata
+def compilev5_1cachetreedata(dirdata, extensiondata):
+    for entry in extensiondata.iteritems():
+        dirdata[entry[1]["path"].strip("/")]["nentries"] = int(entry[1]["entry_count"])
+        try:
+            dirdata[entry[1]["path"].strip("/")]["objname"] = entry[1]["sha1"]
+        except:
+            pass  # Cache tree entry invalid
+
+        try:
+            if dirdata[entry[1]["path"].strip("/")]["nsubtrees"] != entry[1]["subtreenr"]:
+                print entry[0]
+                print dirdata[entry[1]["path"].strip("/")]["nsubtrees"]
+                print entry[1]["subtreenr"]
+        except KeyError:
+            pass
+
+    return dirdata
 # }}}
 
 
@@ -639,6 +661,7 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
     fileoffsets, dirdata = writev5_1filedata(indexentries, dirdata)
     writev5_1diroffsets(diroffsets)
     writev5_1fileoffsets(fileoffsets, fileoffsetbeginning)
+    dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
     writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning)
     # }}}
 else:
