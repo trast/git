@@ -409,8 +409,8 @@ def writev5_1directories(paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
     for p in sorted(paths):
-        diroffsets.append(writtendata)
-        dirwritedataoffsets[p] = writtendata
+        diroffsets.append(writtenbytes)
+        dirwritedataoffsets[p] = writtenbytes
 
         # pathname
         if p == "":
@@ -438,7 +438,10 @@ def writev5_1fakefileoffsets(files):
 
 # Write directory offsets for real {{{
 def writev5_1diroffsets(offsets):
-    pass
+    fw.seek(16)
+    for o in offsets:
+        print fw.tell()
+        fw.write(struct.pack("!I", o))
 # }}}
 
 
