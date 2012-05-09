@@ -463,6 +463,11 @@ def writev5_1filedata(filedirs, indexentries):
         # calculate crc for stat data
         crc = binascii.crc32(struct.pack("!IIIIIII", entry["ctimesec"], entry["ctimensec"], entry["ino"], entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
         fwrite(struct.pack("!i", crc))
+
+        fwrite(binascii.unhexlify(entry["sha1"]))
+
+        writecrc32()
+
 # }}}
 
 # }}}
@@ -540,6 +545,7 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
     writev5_1fakediroffsets(paths)
     diroffsets, dirwritedataoffsets = writev5_1directories(paths)
     fileoffsetbeginning = writev5_1fakefileoffsets(files)
+    writecrc32()
     foffsets = writev5_1filedata(filedirs, indexentries)
     writev5_1diroffsets(diroffsets)
     # }}}
