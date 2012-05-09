@@ -408,9 +408,9 @@ def writev5_1fakediroffsets(paths):
 def writev5_1directories(paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
+    dirdata = defaultdict(dict)
     for p in sorted(paths):
         diroffsets.append(writtenbytes)
-        dirwritedataoffsets[p] = writtenbytes
 
         # pathname
         if p == "":
@@ -418,12 +418,22 @@ def writev5_1directories(paths):
         else:
             fwrite(p + "/\0")
 
+        dirwritedataoffsets[p] = writtenbytes
+
         # flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname, dircrc
         # All this fields will be filled out when the rest of the index
         # is written
-        fwrite(struct.pack("!HIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        fwrite(struct.pack("!HIIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
-    return diroffsets, dirwritedataoffsets
+        # Subtreenr for later usage
+        if p != "":
+            path = p.split("/")
+            try:
+                dirdata["/".join(path[:-1])]["nsubtrees"] += 1
+            except KeyError:
+                dirdata["/".join(path[:-1])]["nsubtrees"] = 1
+
+    return diroffsets, dirwritedataoffsets, dirdata
 # }}}
 
 
@@ -438,17 +448,18 @@ def writev5_1fakefileoffsets(indexentries):
 
 # Write directory offsets for real {{{
 def writev5_1diroffsets(offsets):
-    fw.seek(16)
+    fw.seek(20)
     for o in offsets:
         fw.write(struct.pack("!I", o))
 # }}}
 
 
 # Write file data {{{
-def writev5_1filedata(filedirs, indexentries):
-    foffsets = list()
+def writev5_1filedata(indexentries, dirdata):
+    global writtenbytes
+    fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
-        foffsets.append(writtenbytes)
+        fileoffsets.append(writtenbytes)
         fwrite(entry["filename"] + "\0")
 
         # Prepare flags
@@ -471,8 +482,12 @@ def writev5_1filedata(filedirs, indexentries):
         fwrite(binascii.unhexlify(entry["sha1"]))
 
         writecrc32()
+        try:
+            dirdata[entry["pathname"]]["nfiles"] += 1
+        except KeyError:
+            dirdata[entry["pathname"]]["nfiles"] = 1
 
-    return foffsets
+    return fileoffsets, dirdata
 
 # }}}
 
@@ -482,7 +497,66 @@ def writev5_1fileoffsets(foffsets, fileoffsetbeginning):
     fw.seek(fileoffsetbeginning)
     for f in foffsets:
         fw.write(struct.pack("!I", f))
-#}}}
+# }}}
+
+
+# Write correct directory data {{{
+def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
+    global writtendata
+    foffset = fileoffsetbeginning
+    for d in sorted(dirdata.iteritems()):
+        try:
+            fw.seek(dirwritedataoffsets[d[0]])
+        except KeyError:
+            continue
+        writtendata = d[0] + "\0"
+        try:
+            nsubtrees = d[1]["nsubtrees"]
+        except KeyError:
+            nsubtrees = 0
+
+        try:
+            nfiles = d[1]["nfiles"]
+        except KeyError:
+            nfiles = 0
+
+        try:
+            fwrite(struct.pack("!H", d[1]["flags"]))
+        except KeyError:
+            fwrite(struct.pack("!H", 0))
+
+        if nfiles == -1 or nfiles == 0:
+            fwrite(struct.pack("!I", 0))
+        else:
+            fwrite(struct.pack("!I", foffset))
+            foffset += (nfiles) * 4
+
+        try:
+            fwrite(struct.pack("!I", d[1]["cr"]))
+        except KeyError:
+            fwrite(struct.pack("!I", 0))
+
+        try:
+            fwrite(struct.pack("!I", d[1]["ncr"]))
+        except KeyError:
+            fwrite(struct.pack("!I", 0))
+
+        fwrite(struct.pack("!I", nsubtrees))
+        fwrite(struct.pack("!I", nfiles))
+
+        try:
+            fwrite(struct.pack("!I", d[1]["nentries"]))
+        except KeyError:
+            fwrite(struct.pack("!I", 0))
+
+        try:
+            fwrite(d[1]["objname"])
+        except KeyError:
+            fwrite(struct.pack("!IIIII", 0, 0, 0, 0, 0))
+
+        writecrc32()
+
+# }}}
 
 # }}}
 
@@ -559,12 +633,13 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
     writecrc32()
     writev5_1fakediroffsets(paths)
     # writecrc32() # TODO Check if needed
-    diroffsets, dirwritedataoffsets = writev5_1directories(paths)
+    diroffsets, dirwritedataoffsets, dirdata = writev5_1directories(paths)
     fileoffsetbeginning = writev5_1fakefileoffsets(indexentries)
     # writecrc32() # TODO Check if needed
-    foffsets = writev5_1filedata(filedirs, indexentries)
+    fileoffsets, dirdata = writev5_1filedata(indexentries, dirdata)
     writev5_1diroffsets(diroffsets)
-    writev5_1fileoffsets(foffsets, fileoffsetbeginning)
+    writev5_1fileoffsets(fileoffsets, fileoffsetbeginning)
+    writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning)
     # }}}
 else:
     print "File is corrupted"
