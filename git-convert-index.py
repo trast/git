@@ -463,7 +463,8 @@ def writev5_1filedata(indexentries, dirdata):
     global writtenbytes
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
-        fileoffsets.append(writtenbytes)
+        offset = writtenbytes
+        fileoffsets.append(offset)
         fwrite(entry["filename"] + "\0")
 
         # Prepare flags
@@ -480,7 +481,7 @@ def writev5_1filedata(indexentries, dirdata):
         fwrite(struct.pack("!I", entry["mtimensec"]))
 
         # calculate crc for stat data
-        crc = binascii.crc32(struct.pack("!IIIIIII", entry["ctimesec"], entry["ctimensec"], entry["ino"], entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
+        crc = binascii.crc32(struct.pack("!IIIIIIII", offset, entry["ctimesec"], entry["ctimensec"], entry["ino"], entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
         fwrite(struct.pack("!i", crc))
 
         fwrite(binascii.unhexlify(entry["sha1"]))
@@ -549,7 +550,7 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
         fwrite(struct.pack("!I", nfiles))
 
         try:
-            fwrite(struct.pack("!I", d[1]["nentries"]))
+            fwrite(struct.pack("!i", d[1]["nentries"]))
         except KeyError:
             fwrite(struct.pack("!I", 0))
 
