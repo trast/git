@@ -67,7 +67,6 @@ def readfiles(directories, dirnr, entries):
     if len(directories) > dirnr:
         i = 0
         while i < len(queue):
-            #print directories[dirnr + 1]["pathname"].strip("/")
             if len(directories) - 1 > dirnr and queue[i]["name"] > directories[dirnr + 1]["pathname"]:
                 entries, dirnr = readfiles(directories, dirnr + 1, entries)
             else:
