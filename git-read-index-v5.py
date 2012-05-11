@@ -66,16 +66,11 @@ def readfiles(directories, dirnr, entries):
 
     if len(directories) > dirnr:
         for fi in queue:
-            # print len(directories)
-            # print dirnr
-            # print fi["name"]
-            if len(directories) - 1 <= dirnr or fi["name"] < directories[dirnr + 1]["pathname"]:
-                entries.append(fi)
-            else:
+            #print directories[dirnr + 1]["pathname"].strip("/")
+            if len(directories) - 1 > dirnr and fi["name"] > directories[dirnr + 1]["pathname"]:
                 entries, dirnr = readfiles(directories, dirnr + 1, entries)
-                entries.append(fi)
-
-    return entries, dirnr
+            entries.append(fi)
+        return entries, dirnr
 
 
 def readdirs(ndir):
