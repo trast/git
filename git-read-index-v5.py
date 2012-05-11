@@ -30,11 +30,13 @@ def readheader(f):
 def readindexentries(header):
     f.seek(24 + header["ndir"] * 4)
     directories = readdirs(header["ndir"])
-    readfiles(directories, 0)
-    printdirectories(directories)
+    files, dirnr = readfiles(directories, 0, [])
+    for fi in files:
+        print fi["name"]
+    # printdirectories(directories)
 
 
-def readfiles(directories, dirnr):
+def readfiles(directories, dirnr, entries):
     global filedata
     f.seek(directories[dirnr]["foffset"])
     offset = struct.unpack("!I", fread(4))[0]
@@ -60,7 +62,20 @@ def readfiles(directories, dirnr):
 
         i += 1
 
-        queue.append(dict({"filename": filename, "flags": data[0], "mode": data[1], "mtimes": data[2], "mtimens": data[3], "statcrc": data[4], "objhash": binascii.hexlify(objhash)}))
+        queue.append(dict({"name": directories[dirnr]["pathname"] + filename, "flags": data[0], "mode": data[1], "mtimes": data[2], "mtimens": data[3], "statcrc": data[4], "objhash": binascii.hexlify(objhash)}))
+
+    if len(directories) > dirnr:
+        for fi in queue:
+            # print len(directories)
+            # print dirnr
+            # print fi["name"]
+            if len(directories) - 1 <= dirnr or fi["name"] < directories[dirnr + 1]["pathname"]:
+                entries.append(fi)
+            else:
+                entries, dirnr = readfiles(directories, dirnr + 1, entries)
+                entries.append(fi)
+
+    return entries, dirnr
 
 
 def readdirs(ndir):
@@ -105,4 +120,4 @@ def printdirectories(directories):
 header = readheader(f)
 readindexentries(header)
 
-printheader(header)
+# printheader(header)
