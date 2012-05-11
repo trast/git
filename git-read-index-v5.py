@@ -65,11 +65,14 @@ def readfiles(directories, dirnr, entries):
         queue.append(dict({"name": directories[dirnr]["pathname"] + filename, "flags": data[0], "mode": data[1], "mtimes": data[2], "mtimens": data[3], "statcrc": data[4], "objhash": binascii.hexlify(objhash)}))
 
     if len(directories) > dirnr:
-        for fi in queue:
+        i = 0
+        while i < len(queue):
             #print directories[dirnr + 1]["pathname"].strip("/")
-            if len(directories) - 1 > dirnr and fi["name"] > directories[dirnr + 1]["pathname"]:
+            if len(directories) - 1 > dirnr and queue[i]["name"] > directories[dirnr + 1]["pathname"]:
                 entries, dirnr = readfiles(directories, dirnr + 1, entries)
-            entries.append(fi)
+            else:
+                entries.append(queue[i])
+                i += 1
         return entries, dirnr
 
 
