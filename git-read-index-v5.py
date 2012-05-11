@@ -15,14 +15,48 @@ def fread(n):
 
 
 def readheader(f):
+    global filedata
     signature = fread(4)
     header = struct.unpack('!IIII', fread(16))
     crc = f.read(4)
     readcrc = struct.pack("!i", binascii.crc32("".join(filedata)))
+    filedata = list()
     if crc == readcrc:
         return dict({"signature": signature, "vnr": header[0], "ndir": header[1], "nfile": header[2], "next": header[3]})
     else:
         raise Exception("Wrong crc")
+
+
+def readindexentries(header):
+    f.seek(24 + header["ndir"] * 4)
+    directories = readdirs(header["ndir"])
+    printdirectories(directories)
+
+
+def readdirs(ndir):
+    global filedata
+    i = 0
+    dirs = list()
+    while i < ndir:
+        pathname = ""
+        byte = fread(1)
+        while byte != '\0':
+            pathname += byte
+            byte = fread(1)
+
+        data = struct.unpack("!HIIIIII", fread(26))
+        objname = fread(20)
+
+        readcrc = struct.pack("!i", binascii.crc32("".join(filedata)))
+        crc = f.read(4)
+        filedata = list()
+        if crc != readcrc:
+            raise Exception("Wrong crc for " + pathname)
+
+        dirs.append(dict({"pathname": pathname, "flags": data[0], "foffset": data[1], "cr": data[2], "ncr": data[3], "nsubtrees": data[4], "nfiles": data[5], "nentries": data[6], "objname": objname}))
+        i += 1
+
+    return dirs
 
 
 def printheader(header):
@@ -33,9 +67,12 @@ def printheader(header):
     print "Number of extension: " + str(header["next"])
 
 
+def printdirectories(directories):
+    for d in directories:
+        print d["pathname"] + " " + str(d["flags"]) + " " + str(d["foffset"]) + " " + str(d["cr"]) + " " + str(d["ncr"]) + " " + str(d["nsubtrees"]) + " " + str(d["nfiles"]) + " " + str(d["nentries"]) + " " + str(binascii.hexlify(d["objname"]))
+
+
 header = readheader(f)
-
-
-
+readindexentries(header)
 
 printheader(header)
