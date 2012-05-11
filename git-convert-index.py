@@ -463,6 +463,7 @@ def writev5_1filedata(indexentries, dirdata):
     global writtenbytes
     global writtendata
     fileoffsets = list()
+    writtendata = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = writtenbytes
         fileoffsets.append(offset)
