@@ -6,7 +6,7 @@ import struct
 import os.path
 from collections import defaultdict
 
-# fread {{{
+#  fread {{{
 f = open(".git/index", "rb")
 filedata = list()
 
@@ -22,13 +22,13 @@ def fread(n):
 # fwrite {{{
 fw = open(".git/index-v5", "wb")
 writtenbytes = 0
-writtendata = ""
+writtendata = list()
 
 
 def fwrite(data):
     global writtenbytes
     global writtendata
-    writtendata += data
+    writtendata.append(data)
     writtenbytes += len(data)
     fw.write(data)
 # }}}
@@ -221,7 +221,7 @@ def readreucextensiondata(f):
                 obj_names.append(fread(20))
                 read += 20
             else:
-                obj_names[i] = ""
+                obj_names.append("")
             i += 1
 
         extensiondata.append(dict({"path": path, "entry_mode0": entry_mode[0], "entry_mode1": entry_mode[1], "entry_mode2": entry_mode[2], "obj_names0": obj_names[0], "obj_names1": obj_names[1], "obj_names2": obj_names[2]}))
@@ -395,9 +395,9 @@ def writev5_0conflicteddata(conflicteddata):
 
 # Write stuff for index-v5 draft1 {{{
 # Write header {{{
-def writev5_1header(header, files, paths):
+def writev5_1header(header, paths, files):
     fwrite(header["signature"])
-    fwrite(struct.pack("!III", header["version"], len(paths), len(files)))
+    fwrite(struct.pack("!IIII", header["version"], len(paths), len(files), 0))
 # }}}
 
 
@@ -452,7 +452,7 @@ def writev5_1fakefileoffsets(indexentries):
 
 # Write directory offsets for real {{{
 def writev5_1diroffsets(offsets):
-    fw.seek(20)
+    fw.seek(24)
     for o in offsets:
         fw.write(struct.pack("!I", o))
 # }}}
@@ -514,7 +514,7 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
             fw.seek(dirwritedataoffsets[d[0]])
         except KeyError:
             continue
-        writtendata = d[0] + "\0"
+        writtendata = [d[0] + "\0"]
         try:
             nsubtrees = d[1]["nsubtrees"]
         except KeyError:
@@ -563,6 +563,40 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
 # }}}
 
 
+# Write conflicted data {{{
+def writev5_1conflicteddata(conflictedentries, reucdata, dirdata):
+    global writtenbytes
+    for d in sorted(conflictedentries):
+        if d["pathname"] == "":
+            filename = d["filename"]
+        else:
+            filename = d["pathname"] + "/" + d["filename"]
+
+        dirdata[filename]["cr"] = fw.tell()
+        try:
+            dirdata[filename]["ncr"] += 1
+        except KeyError:
+            dirdata[filename]["ncr"] = 1
+
+        fwrite(d["pathname"] + d["filename"])
+        fwrite("\0")
+        stages = set()
+        fwrite(struct.pack("!b", 0))
+        for i in xrange(0, 2):
+            fwrite(struct.pack("!i", d["mode"]))
+            if d["mode"] != 0:
+                stages.add(i)
+
+        for i in sorted(stages):
+            print i
+            fwrite(binascii.unhexlify(d["sha1"]))
+
+        writecrc32()
+
+    return dirdata
+# }}}
+
+
 # Compile cachetreedata and factor it into the dirdata
 def compilev5_1cachetreedata(dirdata, extensiondata):
     for entry in extensiondata.iteritems():
@@ -583,12 +617,15 @@ def compilev5_1cachetreedata(dirdata, extensiondata):
     return dirdata
 # }}}
 
+# }}}
+
 
 # writecrc32 {{{
 def writecrc32():
     global writtendata
-    fwrite(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
-    writtendata = ""  # Reset writtendata for next crc32
+    crc = binascii.crc32("".join(writtendata))
+    fwrite(struct.pack("!i", crc))
+    writtendata = list()  # Reset writtendata for next crc32
 # }}}
 
 
@@ -660,6 +697,7 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
     fileoffsetbeginning = writev5_1fakefileoffsets(indexentries)
     # writecrc32() # TODO Check if needed
     fileoffsets, dirdata = writev5_1filedata(indexentries, dirdata)
+    dirdata = writev5_1conflicteddata(conflictedentries, reucextensiondata, dirdata)
     writev5_1diroffsets(diroffsets)
     writev5_1fileoffsets(fileoffsets, fileoffsetbeginning)
     dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
