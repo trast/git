@@ -514,7 +514,10 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
             fw.seek(dirwritedataoffsets[d[0]])
         except KeyError:
             continue
-        writtendata = [d[0] + "\0"]
+        if d[0] == "":
+            writtendata = [d[0] + "\0"]
+        else:
+            writtendata = [d[0] + "/\0"]
         try:
             nsubtrees = d[1]["nsubtrees"]
         except KeyError:
