@@ -30,7 +30,37 @@ def readheader(f):
 def readindexentries(header):
     f.seek(24 + header["ndir"] * 4)
     directories = readdirs(header["ndir"])
+    readfiles(directories, 0)
     printdirectories(directories)
+
+
+def readfiles(directories, dirnr):
+    global filedata
+    f.seek(directories[dirnr]["foffset"])
+    offset = struct.unpack("!I", fread(4))[0]
+    f.seek(offset)
+    filedata = list()
+    queue = list()
+    i = 0
+    while i < directories[dirnr]["nfiles"]:
+        filedata.append(struct.pack("!I", f.tell()))
+        filename = ""
+        byte = fread(1)
+        while byte != '\0':
+            filename += byte
+            byte = fread(1)
+
+        data = struct.unpack("!HHIII", fread(16))
+        objhash = fread(20)
+        readcrc = struct.pack("!i", binascii.crc32("".join(filedata)))
+        crc = f.read(4)
+        if readcrc != crc:
+            print "Wrong CRC: " + filename
+        filedata = list()
+
+        i += 1
+
+        queue.append(dict({"filename": filename, "flags": data[0], "mode": data[1], "mtimes": data[2], "mtimens": data[3], "statcrc": data[4], "objhash": binascii.hexlify(objhash)}))
 
 
 def readdirs(ndir):
