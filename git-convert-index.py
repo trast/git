@@ -461,20 +461,22 @@ def writev5_1diroffsets(offsets):
 # Write file data {{{
 def writev5_1filedata(indexentries, dirdata):
     global writtenbytes
+    global writtendata
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = writtenbytes
         fileoffsets.append(offset)
+        writtendata.append(struct.pack("!I", fw.tell()))
         fwrite(entry["filename"] + "\0")
 
         # Prepare flags
         # TODO: Consider extended flags
         flags = entry["flags"] & 0b1000000000000000
         flags += (entry["flags"] & 0b0011000000000000) * 2
-        fwrite(struct.pack("!I", flags))
+        fwrite(struct.pack("!H", flags))
 
         # mode
-        fwrite(struct.pack("!I", entry["mode"]))
+        fwrite(struct.pack("!H", entry["mode"]))
 
         # mtime
         fwrite(struct.pack("!I", entry["mtimesec"]))
