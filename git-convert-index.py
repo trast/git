@@ -1,5 +1,10 @@
 #!/usr/bin/env python
 
+# Outputs: Calculated and read sha1 checksum in hex format
+# Usage: python git-convert-index.py
+# Read the index format with git-read-index-v5.py
+# read-index-v5 outputs the same format as git ls-files
+
 import hashlib
 import binascii
 import struct
@@ -52,7 +57,7 @@ def readheader(f):
 # readindexentries {{{
 def readindexentries(f):
     indexentries = []
-    conflictedentries = []
+    conflictedentries = defaultdict(list)
     paths = set()
     files = list()
     filedirs = defaultdict(list)
@@ -109,7 +114,7 @@ def readindexentries(f):
         else:                   # Conflicted
             if stage == 1:  # Write the stage 1 entry to the main index, to avoid rewriting the whole index once the conflict is resolved
                 indexentries.append(dictentry)
-            conflictedentries.append(dictentry)
+            conflictedentries[pathname].append(dictentry)
 
         i = i + 1
 
@@ -190,7 +195,7 @@ def readreucextensiondata(f):
     extensionsize = fread(4)
 
     read = 0
-    extensiondata = list()
+    extensiondata = defaultdict(list)
     while read < int(convert(extensionsize)):
         path = ""
         byte = fread(1)
@@ -224,7 +229,7 @@ def readreucextensiondata(f):
                 obj_names.append("")
             i += 1
 
-        extensiondata.append(dict({"path": path, "entry_mode0": entry_mode[0], "entry_mode1": entry_mode[1], "entry_mode2": entry_mode[2], "obj_names0": obj_names[0], "obj_names1": obj_names[1], "obj_names2": obj_names[2]}))
+        extensiondata["/".join(path.split("/"))[:-1]].append(dict({"path": path, "entry_mode0": entry_mode[0], "entry_mode1": entry_mode[1], "entry_mode2": entry_mode[2], "obj_names0": obj_names[0], "obj_names1": obj_names[1], "obj_names2": obj_names[2]}))
 
     return extensiondata
 
@@ -573,31 +578,35 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
 def writev5_1conflicteddata(conflictedentries, reucdata, dirdata):
     global writtenbytes
     for d in sorted(conflictedentries):
-        if d["pathname"] == "":
-            filename = d["filename"]
-        else:
-            filename = d["pathname"] + "/" + d["filename"]
+        for f in d:
+            if d["pathname"] == "":
+                filename = d["filename"]
+            else:
+                filename = d["pathname"] + "/" + d["filename"]
 
-        dirdata[filename]["cr"] = fw.tell()
-        try:
-            dirdata[filename]["ncr"] += 1
-        except KeyError:
-            dirdata[filename]["ncr"] = 1
+            dirdata[filename]["cr"] = fw.tell()
+            try:
+                dirdata[filename]["ncr"] += 1
+            except KeyError:
+                dirdata[filename]["ncr"] = 1
 
-        fwrite(d["pathname"] + d["filename"])
-        fwrite("\0")
-        stages = set()
-        fwrite(struct.pack("!b", 0))
-        for i in xrange(0, 2):
-            fwrite(struct.pack("!i", d["mode"]))
-            if d["mode"] != 0:
-                stages.add(i)
+            fwrite(d["pathname"] + d["filename"])
+            fwrite("\0")
+            stages = set()
+            fwrite(struct.pack("!b", 0))
+            for i in xrange(0, 2):
+                fwrite(struct.pack("!i", d["mode"]))
+                if d["mode"] != 0:
+                    stages.add(i)
 
-        for i in sorted(stages):
-            print i
-            fwrite(binascii.unhexlify(d["sha1"]))
+            for i in sorted(stages):
+                print i
+                fwrite(binascii.unhexlify(d["sha1"]))
 
-        writecrc32()
+            writecrc32()
+
+        for f in reucdata[d]:
+            print f
 
     return dirdata
 # }}}

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+# Outputs: All filenames (including path), sorted lexically. Output format is the same as git ls-files
+# Usage: python git-read-index-v5.py
+# Convert index v2/v3 with git-convert-index.py
+
 import struct
 import binascii
 
