@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 
-# Outputs: All filenames (including path), sorted lexically. Output format is
-# the same as git ls-files
+# Usage: python git-read-index-v5.py [-h] [-c] [-v]
+# The -h command line option shows the header of the index file
+# The -v command line option shows a more verbose file list
+# If no argument is given, the output is a list of all files in th index file
+# including the path, sorted lexically. (The same format as git ls-files)
+# (including stat data)
 #
-# Usage: python git-read-index-v5.py
-# Convert index v2/v3 with git-convert-index.py
+# The index v2/v3 can be converted to v5 using git-convert-index.py
 
 import struct
 import binascii
+import sys
 from collections import deque
 
 f = open(".git/index-v5", "rb")
@@ -20,13 +24,13 @@ def read_calc_crc(n, partialcrc=0):
 
 
 def read_header(f):
-    signature, partialcrc = read_calc_crc(4)
-    readheader, partialcrc = read_calc_crc(16, partialcrc)
-    vnr, ndir, nfile, nextensions = struct.unpack('!IIII', readheader)
+    (signature, partialcrc) = read_calc_crc(4)
+    (readheader, partialcrc) = read_calc_crc(16, partialcrc)
+    (vnr, ndir, nfile, nextensions) = struct.unpack('!IIII', readheader)
 
     extoffsets = list()
     for i in xrange(0, nextensions):
-        readoffset, partialcrc = read_calc_crc(4, partialcrc)
+        (readoffset, partialcrc) = read_calc_crc(4, partialcrc)
         extoffsets.append(readoffset)
 
     crc = f.read(4)
@@ -36,16 +40,7 @@ def read_header(f):
         return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
                 nextensions=nextensions, extoffsets=extoffsets)
     else:
-        raise Exception("Wrong crc")
-
-
-def readindexentries(header):
-    # Skip header and directory offsets
-    f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
-
-    directories = read_dirs(header["ndir"])
-    files, dirnr = read_files(directories, 0, [])
-    return files
+        raise Exception("Wrong header crc")
 
 
 def read_name(partialcrc=0):
@@ -56,6 +51,15 @@ def read_name(partialcrc=0):
             (byte, partialcrc) = read_calc_crc(1, partialcrc)
 
         return name, partialcrc
+
+
+def read_index_entries(header):
+    # Skip header and directory offsets
+    f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
+
+    directories = read_dirs(header["ndir"])
+    (files, dirnr) = read_files(directories, 0, [])
+    return files
 
 
 def read_files(directories, dirnr, entries):
@@ -128,13 +132,13 @@ def read_dirs(ndir):
     return dirs
 
 
-def printheader(header):
+def print_header(header):
     print("Signature: %(signature)s\t\t\tVersion: %(vnr)s\n"
             "Number of directories: %(ndir)s\tNumber of files: %(nfile)s\n"
             "Number of extensions: %(nextensions)s" % header)
 
 
-def printdirectories(directories):
+def print_directories(directories):
     for d in directories:
         print ("path: %(pathname)s flags: %(flags)s foffset: %(foffset)s "
                 "ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s "
@@ -142,13 +146,26 @@ def printdirectories(directories):
                 str(binascii.hexlify(d["objname"])))
 
 
+def print_verbose_files(files):
+    for fi in files:
+        print ("%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s\n"
+                "mode: %(mode)s flags: %(flags)s\nstatcrc: " % fi
+                + hex(fi["statcrc"]))
+
+
 header = read_header(f)
-# printheader(header)
 
 if header["signature"] == "DIRC" and header["vnr"] == 5:
-    files = readindexentries(header)
-    for fi in files:
-        print fi["name"]
+    files = read_index_entries(header)
+    for arg in sys.argv[1:]:
+        if arg == "-h":
+            print_header(header)
+        if arg == "-v":
+            print_verbose_files(files)
+
+    if len(sys.argv) == 1:
+        for fi in files:
+            print fi["name"]
 else:
     raise Exception("Signature or version of the index are wrong.\n"
             "Header: %(signature)s\tVersion: %(vnr)s" % header)
