@@ -8,6 +8,7 @@
 
 import struct
 import binascii
+from collections import deque
 
 f = open(".git/index-v5", "rb")
 
@@ -43,12 +44,21 @@ def readindexentries(header):
     f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
 
     directories = read_dirs(header["ndir"])
-    files, dirnr = readfiles(directories, 0, [])
-    for fi in files:
-        print fi["name"]
+    files, dirnr = read_files(directories, 0, [])
+    return files
 
 
-def readfiles(directories, dirnr, entries):
+def read_name(partialcrc=0):
+        name = ""
+        (byte, partialcrc) = read_calc_crc(1, partialcrc)
+        while byte != '\0':
+            name += byte
+            (byte, partialcrc) = read_calc_crc(1, partialcrc)
+
+        return name, partialcrc
+
+
+def read_files(directories, dirnr, entries):
     # The foffset only needs to be considered for the first directory, since
     # we read the files continously and have the file pointer always in the
     # right place. Doing so saves 2 seeks per directory.
@@ -58,7 +68,7 @@ def readfiles(directories, dirnr, entries):
         (offset, ) = struct.unpack("!I", readoffset)
         f.seek(offset)
 
-    queue = list()
+    queue = deque()
     for i in xrange(0, directories[dirnr]["nfiles"]):
         # A little cheating here in favor of simplicity and execution speed.
         # The fileoffset is only read when really needed, in the other cases
@@ -67,11 +77,7 @@ def readfiles(directories, dirnr, entries):
 
         partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
 
-        filename = ""
-        (byte, partialcrc) = read_calc_crc(1, partialcrc)
-        while byte != '\0':
-            filename += byte
-            (byte, partialcrc) = read_calc_crc(1, partialcrc)
+        (filename, partialcrc) = read_name(partialcrc)
 
         (statdata, partialcrc) = read_calc_crc(16, partialcrc)
         (flags, mode, mtimes, mtimens,
@@ -89,14 +95,12 @@ def readfiles(directories, dirnr, entries):
             statcrc=statcrc, objhash=binascii.hexlify(objhash)))
 
     if len(directories) > dirnr:
-        i = 0
-        while i < len(queue):
-            if (len(directories) - 1 > dirnr and
-                    queue[i]["name"] > directories[dirnr + 1]["pathname"]):
-                entries, dirnr = readfiles(directories, dirnr + 1, entries)
+        while queue:
+            if (len(directories) > dirnr + 1 and
+                    queue[0]["name"] > directories[dirnr + 1]["pathname"]):
+                (entries, dirnr) = read_files(directories, dirnr + 1, entries)
             else:
-                entries.append(queue[i])
-                i += 1
+                entries.append(queue.popleft())
 
         return entries, dirnr
 
@@ -104,11 +108,7 @@ def readfiles(directories, dirnr, entries):
 def read_dirs(ndir):
     dirs = list()
     for i in xrange(0, ndir):
-        pathname = ""
-        (byte, partialcrc) = read_calc_crc(1)
-        while byte != '\0':
-            pathname += byte
-            (byte, partialcrc) = read_calc_crc(1, partialcrc)
+        (pathname, partialcrc) = read_name()
 
         (readstatdata, partialcrc) = read_calc_crc(26, partialcrc)
         (flags, foffset, cr, ncr, nsubtrees, nfiles,
@@ -146,7 +146,9 @@ header = read_header(f)
 # printheader(header)
 
 if header["signature"] == "DIRC" and header["vnr"] == 5:
-    directories = readindexentries(header)
+    files = readindexentries(header)
+    for fi in files:
+        print fi["name"]
 else:
     raise Exception("Signature or version of the index are wrong.\n"
             "Header: %(signature)s\tVersion: %(vnr)s" % header)
