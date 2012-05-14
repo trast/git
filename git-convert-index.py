@@ -402,7 +402,7 @@ def writev5_0conflicteddata(conflicteddata):
 # Write header {{{
 def writev5_1header(header, paths, files):
     fwrite(header["signature"])
-    fwrite(struct.pack("!IIII", header["version"], len(paths), len(files), 0))
+    fwrite(struct.pack("!IIII", 5, len(paths), len(files), 0))
 # }}}
 
 
