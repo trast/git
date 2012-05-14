@@ -19,7 +19,6 @@ def read_calc_crc(n, partialcrc=0):
 
 
 def read_header(f):
-    global filedata
     signature, partialcrc = read_calc_crc(4)
     readheader, partialcrc = read_calc_crc(16, partialcrc)
     vnr, ndir, nfile, nextensions = struct.unpack('!IIII', readheader)
@@ -50,6 +49,9 @@ def readindexentries(header):
 
 
 def readfiles(directories, dirnr, entries):
+    # The foffset only needs to be considered for the first directory, since
+    # we read the files continously and have the file pointer always in the
+    # right place. Doing so saves 2 seeks per directory.
     if dirnr == 0:
         f.seek(directories[dirnr]["foffset"])
         (readoffset, partialcrc) = read_calc_crc(4)
@@ -63,8 +65,7 @@ def readfiles(directories, dirnr, entries):
         # it's just calculated from the file position, to save on reads and
         # simplify the code.
 
-        if partialcrc != 0:
-            partialcrc = binascii.crc(struct.pack("!I", f.tell()))
+        partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
 
         filename = ""
         (byte, partialcrc) = read_calc_crc(1, partialcrc)
@@ -81,13 +82,11 @@ def readfiles(directories, dirnr, entries):
         datacrc = struct.pack("!i", partialcrc)
         crc = f.read(4)
         if datacrc != crc:
-            raise Exception("Wrong CRC: " + filename)
+            raise Exception("Wrong CRC for file entry: " + filename)
 
         queue.append(dict(name=directories[dirnr]["pathname"] + filename,
             flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
             statcrc=statcrc, objhash=binascii.hexlify(objhash)))
-
-        partialcrc = 0
 
     if len(directories) > dirnr:
         i = 0
@@ -120,7 +119,7 @@ def read_dirs(ndir):
         datacrc = struct.pack("!i", partialcrc)
         crc = f.read(4)
         if crc != datacrc:
-            raise Exception("Wrong crc for " + pathname)
+            raise Exception("Wrong crc for directory entry: " + pathname)
 
         dirs.append(dict(pathname=pathname, flags=flags, foffset=foffset,
             cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
