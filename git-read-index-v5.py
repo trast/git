@@ -39,11 +39,11 @@ def read_header(f):
     crc = f.read(4)
     datacrc = struct.pack("!i", partialcrc)
 
-    if crc == datacrc:
-        return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
-                nextensions=nextensions, extoffsets=extoffsets)
-    else:
+    if crc != datacrc:
         raise Exception("Wrong header crc")
+
+    return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
+            nextensions=nextensions, extoffsets=extoffsets)
 
 
 def read_name(f, partialcrc=0):
