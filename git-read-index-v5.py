@@ -69,20 +69,20 @@ def read_index_entries(f, header):
     f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
 
     directories = read_dirs(f, header["ndir"])
+
+    # The foffset only needs to be considered for the first directory, since
+    # we read the files continously and have the file pointer always in the
+    # right place. Doing so saves 2 seeks per directory.
+    f.seek(directories[0]["foffset"])
+    (readoffset, partialcrc) = read_calc_crc(f, OFFSET_STRUCT.size)
+    (offset, ) = OFFSET_STRUCT.unpack(readoffset)
+    f.seek(offset)
+
     (files, dirnr) = read_files(f, directories, 0, [])
     return files
 
 
 def read_files(f, directories, dirnr, entries):
-    # The foffset only needs to be considered for the first directory, since
-    # we read the files continously and have the file pointer always in the
-    # right place. Doing so saves 2 seeks per directory.
-    if dirnr == 0:
-        f.seek(directories[dirnr]["foffset"])
-        (readoffset, partialcrc) = read_calc_crc(f, OFFSET_STRUCT.size)
-        (offset, ) = OFFSET_STRUCT.unpack(readoffset)
-        f.seek(offset)
-
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
         # A little cheating here in favor of simplicity and execution speed.
@@ -110,15 +110,14 @@ def read_files(f, directories, dirnr, entries):
             flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
             statcrc=statcrc, objhash=binascii.hexlify(objhash)))
 
-    if len(directories) > dirnr:
-        while queue:
-            if (len(directories) > dirnr + 1 and
-                    queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-                (entries, dirnr) = read_files(f, directories, dirnr + 1, entries)
-            else:
-                entries.append(queue.popleft())
+    while queue:
+        if (len(directories) > dirnr + 1 and
+                queue[0]["name"] > directories[dirnr + 1]["pathname"]):
+            (entries, dirnr) = read_files(f, directories, dirnr + 1, entries)
+        else:
+            entries.append(queue.popleft())
 
-        return entries, dirnr
+    return entries, dirnr
 
 
 def read_dirs(f, ndir):
