@@ -162,13 +162,13 @@ def main(args):
     header = read_header(f)
 
     files = read_index_entries(f, header)
-    for arg in sys.argv[1:]:
+    for arg in args:
         if arg == "-h":
             print_header(header)
         if arg == "-v":
             print_verbose_files(files)
 
-    if len(sys.argv) == 0:
+    if len(args) == 0:
         for fi in files:
             print fi["name"]
 
