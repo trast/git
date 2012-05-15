@@ -28,6 +28,11 @@ def read_header(f):
     (readheader, partialcrc) = read_calc_crc(16, partialcrc)
     (vnr, ndir, nfile, nextensions) = struct.unpack('!IIII', readheader)
 
+    if signature != "DIRC" or vnr != 5:
+        raise Exception("Signature or version of the index are wrong.\n"
+                "Header: %(signature)s\tVersion: %(vnr)s" %
+                {"signature": signature, "vnr": vnr})
+
     extoffsets = list()
     for i in xrange(0, nextensions):
         (readoffset, partialcrc) = read_calc_crc(4, partialcrc)
@@ -44,13 +49,13 @@ def read_header(f):
 
 
 def read_name(partialcrc=0):
-        name = ""
+    name = ""
+    (byte, partialcrc) = read_calc_crc(1, partialcrc)
+    while byte != '\0':
+        name += byte
         (byte, partialcrc) = read_calc_crc(1, partialcrc)
-        while byte != '\0':
-            name += byte
-            (byte, partialcrc) = read_calc_crc(1, partialcrc)
 
-        return name, partialcrc
+    return name, partialcrc
 
 
 def read_index_entries(header):
@@ -153,9 +158,9 @@ def print_verbose_files(files):
                 + hex(fi["statcrc"]))
 
 
-header = read_header(f)
+def main(args):
+    header = read_header(f)
 
-if header["signature"] == "DIRC" and header["vnr"] == 5:
     files = read_index_entries(header)
     for arg in sys.argv[1:]:
         if arg == "-h":
@@ -163,9 +168,11 @@ if header["signature"] == "DIRC" and header["vnr"] == 5:
         if arg == "-v":
             print_verbose_files(files)
 
-    if len(sys.argv) == 1:
+    if len(sys.argv) == 0:
         for fi in files:
             print fi["name"]
-else:
-    raise Exception("Signature or version of the index are wrong.\n"
-            "Header: %(signature)s\tVersion: %(vnr)s" % header)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+
