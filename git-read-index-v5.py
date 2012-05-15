@@ -78,7 +78,8 @@ def read_index_entries(f, header):
     (offset, ) = OFFSET_STRUCT.unpack(readoffset)
     f.seek(offset)
 
-    (files, dirnr) = read_files(f, directories, 0, [])
+    files = list()
+    read_files(f, directories, 0, files)
     return files
 
 
@@ -113,11 +114,11 @@ def read_files(f, directories, dirnr, entries):
     while queue:
         if (len(directories) > dirnr + 1 and
                 queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-            (entries, dirnr) = read_files(f, directories, dirnr + 1, entries)
+            dirnr = read_files(f, directories, dirnr + 1, entries)
         else:
             entries.append(queue.popleft())
 
-    return entries, dirnr
+    return dirnr
 
 
 def read_dirs(f, ndir):
