@@ -14,18 +14,16 @@ import binascii
 import sys
 from collections import deque
 
-f = open(".git/index-v5", "rb")
 
-
-def read_calc_crc(n, partialcrc=0):
+def read_calc_crc(f, n, partialcrc=0):
     data = f.read(n)
     crc = binascii.crc32(data, partialcrc)
     return data, crc
 
 
 def read_header(f):
-    (signature, partialcrc) = read_calc_crc(4)
-    (readheader, partialcrc) = read_calc_crc(16, partialcrc)
+    (signature, partialcrc) = read_calc_crc(f, 4)
+    (readheader, partialcrc) = read_calc_crc(f, 16, partialcrc)
     (vnr, ndir, nfile, nextensions) = struct.unpack('!IIII', readheader)
 
     if signature != "DIRC" or vnr != 5:
@@ -35,7 +33,7 @@ def read_header(f):
 
     extoffsets = list()
     for i in xrange(0, nextensions):
-        (readoffset, partialcrc) = read_calc_crc(4, partialcrc)
+        (readoffset, partialcrc) = read_calc_crc(f, 4, partialcrc)
         extoffsets.append(readoffset)
 
     crc = f.read(4)
@@ -48,32 +46,32 @@ def read_header(f):
         raise Exception("Wrong header crc")
 
 
-def read_name(partialcrc=0):
+def read_name(f, partialcrc=0):
     name = ""
-    (byte, partialcrc) = read_calc_crc(1, partialcrc)
+    (byte, partialcrc) = read_calc_crc(f, 1, partialcrc)
     while byte != '\0':
         name += byte
-        (byte, partialcrc) = read_calc_crc(1, partialcrc)
+        (byte, partialcrc) = read_calc_crc(f, 1, partialcrc)
 
     return name, partialcrc
 
 
-def read_index_entries(header):
+def read_index_entries(f, header):
     # Skip header and directory offsets
     f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
 
-    directories = read_dirs(header["ndir"])
-    (files, dirnr) = read_files(directories, 0, [])
+    directories = read_dirs(f, header["ndir"])
+    (files, dirnr) = read_files(f, directories, 0, [])
     return files
 
 
-def read_files(directories, dirnr, entries):
+def read_files(f, directories, dirnr, entries):
     # The foffset only needs to be considered for the first directory, since
     # we read the files continously and have the file pointer always in the
     # right place. Doing so saves 2 seeks per directory.
     if dirnr == 0:
         f.seek(directories[dirnr]["foffset"])
-        (readoffset, partialcrc) = read_calc_crc(4)
+        (readoffset, partialcrc) = read_calc_crc(f, 4)
         (offset, ) = struct.unpack("!I", readoffset)
         f.seek(offset)
 
@@ -86,13 +84,13 @@ def read_files(directories, dirnr, entries):
 
         partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
 
-        (filename, partialcrc) = read_name(partialcrc)
+        (filename, partialcrc) = read_name(f, partialcrc)
 
-        (statdata, partialcrc) = read_calc_crc(16, partialcrc)
+        (statdata, partialcrc) = read_calc_crc(f, 16, partialcrc)
         (flags, mode, mtimes, mtimens,
                 statcrc) = struct.unpack("!HHIII", statdata)
 
-        (objhash, partialcrc) = read_calc_crc(20, partialcrc)
+        (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
         datacrc = struct.pack("!i", partialcrc)
         crc = f.read(4)
@@ -107,23 +105,23 @@ def read_files(directories, dirnr, entries):
         while queue:
             if (len(directories) > dirnr + 1 and
                     queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-                (entries, dirnr) = read_files(directories, dirnr + 1, entries)
+                (entries, dirnr) = read_files(f, directories, dirnr + 1, entries)
             else:
                 entries.append(queue.popleft())
 
         return entries, dirnr
 
 
-def read_dirs(ndir):
+def read_dirs(f, ndir):
     dirs = list()
     for i in xrange(0, ndir):
-        (pathname, partialcrc) = read_name()
+        (pathname, partialcrc) = read_name(f)
 
-        (readstatdata, partialcrc) = read_calc_crc(26, partialcrc)
+        (readstatdata, partialcrc) = read_calc_crc(f, 26, partialcrc)
         (flags, foffset, cr, ncr, nsubtrees, nfiles,
                 nentries) = struct.unpack("!HIIIIII", readstatdata)
 
-        (objname, partialcrc) = read_calc_crc(20, partialcrc)
+        (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
         datacrc = struct.pack("!i", partialcrc)
         crc = f.read(4)
@@ -159,9 +157,11 @@ def print_verbose_files(files):
 
 
 def main(args):
+    f = open(".git/index-v5", "rb")
+
     header = read_header(f)
 
-    files = read_index_entries(header)
+    files = read_index_entries(f, header)
     for arg in sys.argv[1:]:
         if arg == "-h":
             print_header(header)
@@ -175,4 +175,3 @@ def main(args):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-
