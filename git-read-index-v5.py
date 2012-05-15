@@ -14,6 +14,12 @@ import binascii
 import sys
 from collections import deque
 
+DIR_DATA_STRUCT = struct.Struct("!HIIIIII")
+HEADER_STRUCT = struct.Struct("!IIII")
+CRC_STRUCT = struct.Struct("!i")
+OFFSET_STRUCT = struct.Struct("!I")
+FILE_DATA_STRUCT = struct.Struct("!HHIII")
+
 
 def read_calc_crc(f, n, partialcrc=0):
     data = f.read(n)
@@ -23,8 +29,9 @@ def read_calc_crc(f, n, partialcrc=0):
 
 def read_header(f):
     (signature, partialcrc) = read_calc_crc(f, 4)
-    (readheader, partialcrc) = read_calc_crc(f, 16, partialcrc)
-    (vnr, ndir, nfile, nextensions) = struct.unpack('!IIII', readheader)
+    (readheader, partialcrc) = read_calc_crc(f,
+            HEADER_STRUCT.size, partialcrc)
+    (vnr, ndir, nfile, nextensions) = HEADER_STRUCT.unpack(readheader)
 
     if signature != "DIRC" or vnr != 5:
         raise Exception("Signature or version of the index are wrong.\n"
@@ -33,11 +40,12 @@ def read_header(f):
 
     extoffsets = list()
     for i in xrange(nextensions):
-        (readoffset, partialcrc) = read_calc_crc(f, 4, partialcrc)
+        (readoffset, partialcrc) = read_calc_crc(f,
+                CRC_STRUCT.size, partialcrc)
         extoffsets.append(readoffset)
 
     crc = f.read(4)
-    datacrc = struct.pack("!i", partialcrc)
+    datacrc = CRC_STRUCT.pack(partialcrc)
 
     if crc != datacrc:
         raise Exception("Wrong header crc")
@@ -71,8 +79,8 @@ def read_files(f, directories, dirnr, entries):
     # right place. Doing so saves 2 seeks per directory.
     if dirnr == 0:
         f.seek(directories[dirnr]["foffset"])
-        (readoffset, partialcrc) = read_calc_crc(f, 4)
-        (offset, ) = struct.unpack("!I", readoffset)
+        (readoffset, partialcrc) = read_calc_crc(f, OFFSET_STRUCT.size)
+        (offset, ) = OFFSET_STRUCT.unpack(readoffset)
         f.seek(offset)
 
     queue = deque()
@@ -86,13 +94,14 @@ def read_files(f, directories, dirnr, entries):
 
         (filename, partialcrc) = read_name(f, partialcrc)
 
-        (statdata, partialcrc) = read_calc_crc(f, 16, partialcrc)
+        (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
+                partialcrc)
         (flags, mode, mtimes, mtimens,
-                statcrc) = struct.unpack("!HHIII", statdata)
+                statcrc) = FILE_DATA_STRUCT.unpack(statdata)
 
         (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
-        datacrc = struct.pack("!i", partialcrc)
+        datacrc = CRC_STRUCT.pack(partialcrc)
         crc = f.read(4)
         if datacrc != crc:
             raise Exception("Wrong CRC for file entry: " + filename)
@@ -117,13 +126,13 @@ def read_dirs(f, ndir):
     for i in xrange(ndir):
         (pathname, partialcrc) = read_name(f)
 
-        (readstatdata, partialcrc) = read_calc_crc(f, 26, partialcrc)
+        (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size, partialcrc)
         (flags, foffset, cr, ncr, nsubtrees, nfiles,
-                nentries) = struct.unpack("!HIIIIII", readstatdata)
+                nentries) = DIR_DATA_STRUCT.unpack(readstatdata)
 
         (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
-        datacrc = struct.pack("!i", partialcrc)
+        datacrc = CRC_STRUCT.pack(partialcrc)
         crc = f.read(4)
         if crc != datacrc:
             raise Exception("Wrong crc for directory entry: " + pathname)
