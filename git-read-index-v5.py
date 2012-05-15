@@ -83,33 +83,36 @@ def read_index_entries(f, header):
     return files
 
 
+def read_file(f, pathname):
+    # A little cheating here in favor of simplicity and execution speed.
+    # The fileoffset is only read when really needed, in the other cases
+    # it's just calculated from the file position, to save on reads and
+    # simplify the code.
+    partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
+
+    (filename, partialcrc) = read_name(f, partialcrc)
+
+    (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
+            partialcrc)
+    (flags, mode, mtimes, mtimens,
+            statcrc) = FILE_DATA_STRUCT.unpack(statdata)
+
+    (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
+
+    datacrc = CRC_STRUCT.pack(partialcrc)
+    crc = f.read(4)
+    if datacrc != crc:
+        raise Exception("Wrong CRC for file entry: " + filename)
+
+    return dict(name=pathname + filename,
+            flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
+            statcrc=statcrc, objhash=binascii.hexlify(objhash))
+
+
 def read_files(f, directories, dirnr, entries):
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
-        # A little cheating here in favor of simplicity and execution speed.
-        # The fileoffset is only read when really needed, in the other cases
-        # it's just calculated from the file position, to save on reads and
-        # simplify the code.
-
-        partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
-
-        (filename, partialcrc) = read_name(f, partialcrc)
-
-        (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
-                partialcrc)
-        (flags, mode, mtimes, mtimens,
-                statcrc) = FILE_DATA_STRUCT.unpack(statdata)
-
-        (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
-
-        datacrc = CRC_STRUCT.pack(partialcrc)
-        crc = f.read(4)
-        if datacrc != crc:
-            raise Exception("Wrong CRC for file entry: " + filename)
-
-        queue.append(dict(name=directories[dirnr]["pathname"] + filename,
-            flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
-            statcrc=statcrc, objhash=binascii.hexlify(objhash)))
+        queue.append(read_file(f, directories[dirnr]["pathname"]))
 
     while queue:
         if (len(directories) > dirnr + 1 and
@@ -121,25 +124,30 @@ def read_files(f, directories, dirnr, entries):
     return dirnr
 
 
+def read_dir(f):
+    (pathname, partialcrc) = read_name(f)
+
+    (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size,
+            partialcrc)
+    (flags, foffset, cr, ncr, nsubtrees, nfiles,
+            nentries) = DIR_DATA_STRUCT.unpack(readstatdata)
+
+    (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
+
+    datacrc = CRC_STRUCT.pack(partialcrc)
+    crc = f.read(4)
+    if crc != datacrc:
+        raise Exception("Wrong crc for directory entry: " + pathname)
+
+    return dict(pathname=pathname, flags=flags, foffset=foffset,
+        cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
+        nentries=nentries, objname=objname)
+
+
 def read_dirs(f, ndir):
     dirs = list()
     for i in xrange(ndir):
-        (pathname, partialcrc) = read_name(f)
-
-        (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size, partialcrc)
-        (flags, foffset, cr, ncr, nsubtrees, nfiles,
-                nentries) = DIR_DATA_STRUCT.unpack(readstatdata)
-
-        (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
-
-        datacrc = CRC_STRUCT.pack(partialcrc)
-        crc = f.read(4)
-        if crc != datacrc:
-            raise Exception("Wrong crc for directory entry: " + pathname)
-
-        dirs.append(dict(pathname=pathname, flags=flags, foffset=foffset,
-            cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
-            nentries=nentries, objname=objname))
+        dirs.append(read_dir(f))
 
     return dirs
 
