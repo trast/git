@@ -32,7 +32,7 @@ def read_header(f):
                 {"signature": signature, "vnr": vnr})
 
     extoffsets = list()
-    for i in xrange(0, nextensions):
+    for i in xrange(nextensions):
         (readoffset, partialcrc) = read_calc_crc(f, 4, partialcrc)
         extoffsets.append(readoffset)
 
@@ -76,7 +76,7 @@ def read_files(f, directories, dirnr, entries):
         f.seek(offset)
 
     queue = deque()
-    for i in xrange(0, directories[dirnr]["nfiles"]):
+    for i in xrange(directories[dirnr]["nfiles"]):
         # A little cheating here in favor of simplicity and execution speed.
         # The fileoffset is only read when really needed, in the other cases
         # it's just calculated from the file position, to save on reads and
@@ -114,7 +114,7 @@ def read_files(f, directories, dirnr, entries):
 
 def read_dirs(f, ndir):
     dirs = list()
-    for i in xrange(0, ndir):
+    for i in xrange(ndir):
         (pathname, partialcrc) = read_name(f)
 
         (readstatdata, partialcrc) = read_calc_crc(f, 26, partialcrc)
