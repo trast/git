@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
-# Usage: python git-read-index-v5.py [-h] [-c] [-v]
+# Usage: python git-read-index-v5.py [-h] [-v] [--file=FILENAME]
 # The -h command line option shows the header of the index file
 # The -v command line option shows a more verbose file list
+# The --file command takes an argument, which file should be read.
+# The -h and -v options are mutually exclusive.
 # If no argument is given, the output is a list of all files in th index file
 # including the path, sorted lexically. (The same format as git ls-files)
 # (including stat data)
@@ -109,7 +111,7 @@ def read_file(f, pathname):
             statcrc=statcrc, objhash=binascii.hexlify(objhash))
 
 
-def read_files(f, directories, dirnr, entries):
+def read_files(f, directories, dirnr, files_out):
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
         queue.append(read_file(f, directories[dirnr]["pathname"]))
@@ -117,9 +119,9 @@ def read_files(f, directories, dirnr, entries):
     while queue:
         if (len(directories) > dirnr + 1 and
                 queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-            dirnr = read_files(f, directories, dirnr + 1, entries)
+            dirnr = read_files(f, directories, dirnr + 1, files_out)
         else:
-            entries.append(queue.popleft())
+            files_out.append(queue.popleft())
 
     return dirnr
 
@@ -166,29 +168,38 @@ def print_directories(directories):
                 str(binascii.hexlify(d["objname"])))
 
 
-def print_verbose_files(files):
+def print_files(files, verbose=False):
     for fi in files:
-        print ("%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s\n"
-                "mode: %(mode)s flags: %(flags)s\nstatcrc: " % fi
-                + hex(fi["statcrc"]))
+        if verbose:
+            print ("%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s\n"
+                    "mode: %(mode)s flags: %(flags)s\nstatcrc: " % fi
+                    + hex(fi["statcrc"]))
+        else:
+            print fi["name"]
 
 
 def main(args):
-    f = open(".git/index-v5", "rb")
+    f = None
+    pheader = False
+    pverbose = False
+    for arg in args:
+        if arg == "-h":
+            pheader = True
+        if arg == "-v":
+            pverbose = True
+        if arg[:7] == '--file=':
+            f = open(arg[7:], "rb")
+
+    if not f:
+        f = open(".git/index-v5", "rb")
 
     header = read_header(f)
 
     files = read_index_entries(f, header)
-    for arg in args:
-        if arg == "-h":
-            print_header(header)
-        if arg == "-v":
-            print_verbose_files(files)
-
-    if len(args) == 0:
-        for fi in files:
-            print fi["name"]
-
+    if pheader:
+        print_header(header)
+    else:
+        print_files(files, pverbose)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
