@@ -37,6 +37,18 @@ FILES_FORMAT = """\
 mode: %(mode)s flags: %(flags)s\nstatcrc: """
 
 
+class SignatureError(Exception):
+    pass
+
+
+class VersionError(Exception):
+    pass
+
+
+class CrcError(Exception):
+    pass
+
+
 def read_calc_crc(f, n, partialcrc=0):
     """ Reads a chunk of data and generates the crc sum for the data. The crc
     sum can also be combined with a crc code calculated earlier by using the
@@ -74,10 +86,11 @@ def read_header(f):
             HEADER_STRUCT.size, partialcrc)
     (vnr, ndir, nfile, nextensions) = HEADER_STRUCT.unpack(readheader)
 
-    if signature != "DIRC" or vnr != 5:
-        raise Exception("Signature or version of the index are wrong.\n"
-                "Header: %(signature)s\tVersion: %(vnr)s" %
-                {"signature": signature, "vnr": vnr})
+    if signature != "DIRC":
+        raise SignatureError("Signature is not DIRC. Signature: " + signature)
+
+    if vnr != 5:
+        raise VersionError("The index is not Version 5. Version: " + str(vnr))
 
     extoffsets = list()
     for i in xrange(nextensions):
@@ -89,7 +102,7 @@ def read_header(f):
     datacrc = CRC_STRUCT.pack(partialcrc)
 
     if crc != datacrc:
-        raise Exception("Wrong header crc")
+        raise CrcError("Wrong header crc")
 
     return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
             nextensions=nextensions, extoffsets=extoffsets)
@@ -174,7 +187,7 @@ def read_file(f, pathname):
     datacrc = CRC_STRUCT.pack(partialcrc)
     crc = f.read(CRC_STRUCT.size)
     if datacrc != crc:
-        raise Exception("Wrong CRC for file entry: " + filename)
+        raise CrcError("Wrong CRC for file entry: " + filename)
 
     return dict(name=pathname + filename,
             flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
@@ -233,7 +246,7 @@ def read_dir(f):
     datacrc = CRC_STRUCT.pack(partialcrc)
     crc = f.read(CRC_STRUCT.size)
     if crc != datacrc:
-        raise Exception("Wrong crc for directory entry: " + pathname)
+        raise CrcError("Wrong crc for directory entry: " + pathname)
 
     return dict(pathname=pathname, flags=flags, foffset=foffset,
         cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
