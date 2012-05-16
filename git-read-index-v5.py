@@ -16,11 +16,11 @@ import binascii
 import sys
 from collections import deque
 
-DIR_DATA_STRUCT = struct.Struct("!HIIIIII")
+DIR_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
 HEADER_STRUCT = struct.Struct("!IIII")
 CRC_STRUCT = struct.Struct("!i")
 OFFSET_STRUCT = struct.Struct("!I")
-FILE_DATA_STRUCT = struct.Struct("!HHIII")
+FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
 
 def read_calc_crc(f, n, partialcrc=0):
@@ -99,9 +99,7 @@ def read_file(f, pathname):
     (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
             partialcrc)
     (flags, mode, mtimes, mtimens,
-            statcrc) = FILE_DATA_STRUCT.unpack(statdata)
-
-    (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
+            statcrc, objhash) = FILE_DATA_STRUCT.unpack(statdata)
 
     datacrc = CRC_STRUCT.pack(partialcrc)
     crc = f.read(CRC_STRUCT.size)
@@ -134,9 +132,7 @@ def read_dir(f):
     (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size,
             partialcrc)
     (flags, foffset, cr, ncr, nsubtrees, nfiles,
-            nentries) = DIR_DATA_STRUCT.unpack(readstatdata)
-
-    (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
+            nentries, objname) = DIR_DATA_STRUCT.unpack(readstatdata)
 
     datacrc = CRC_STRUCT.pack(partialcrc)
     crc = f.read(CRC_STRUCT.size)
