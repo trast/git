@@ -141,7 +141,7 @@ def read_dir(f):
 
     return dict(pathname=pathname, flags=flags, foffset=foffset,
         cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
-        nentries=nentries, objname=objname)
+        nentries=nentries, objname=binascii.hexlify(objname))
 
 
 def read_dirs(f, ndir):
@@ -162,8 +162,7 @@ def print_directories(directories):
     for d in directories:
         print ("path: %(pathname)s flags: %(flags)s foffset: %(foffset)s "
                 "ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s "
-                "nentries: %(nentries)s objname: " % d +
-                str(binascii.hexlify(d["objname"])))
+                "nentries: %(nentries)s objname: %(objname)s" % d)
 
 
 def print_files(files, verbose=False):
