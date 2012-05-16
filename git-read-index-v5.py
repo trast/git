@@ -69,6 +69,7 @@ def read_name(f, partialcrc=0):
 
 def read_index_entries(f, header):
     # Skip header and directory offsets
+    # Header size = 24 bytes, each extension offset and dir offset is 4 bytes
     f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
 
     directories = read_dirs(f, header["ndir"])
@@ -103,7 +104,7 @@ def read_file(f, pathname):
     (objhash, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
     datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(4)
+    crc = f.read(CRC_STRUCT.size)
     if datacrc != crc:
         raise Exception("Wrong CRC for file entry: " + filename)
 
