@@ -38,12 +38,36 @@ mode: %(mode)s flags: %(flags)s\nstatcrc: """
 
 
 def read_calc_crc(f, n, partialcrc=0):
+    """ Reads a chunk of data and generates the crc sum for the data. The crc
+    sum can also be combined with a crc code calculated earlier by using the
+    partialcrc parameter
+
+    Args:
+        f: the file from which the data should be read
+        n: number of bytes to read
+        partialcrc: a earlier calculated crc, which should be taken into
+            account when calculating the crc
+    Returns:
+        data, crc: a tuple of the read data and the calculated crc code
+    """
     data = f.read(n)
     crc = binascii.crc32(data, partialcrc)
     return data, crc
 
 
 def read_header(f):
+    """ Read the header of a index-v5 file
+
+    Args:
+        f: the file from which the header should be read
+    Returns:
+        A dict with all the header values
+    Raises:
+        SignatureError: the signature of the index file is wrong
+        VersionError: the version of the index file is wrong
+        CrcError: the crc code doesn't match with the contents that have been
+            read
+    """
     # 4 byte signature
     (signature, partialcrc) = read_calc_crc(f, 4)
     (readheader, partialcrc) = read_calc_crc(f,
@@ -72,6 +96,18 @@ def read_header(f):
 
 
 def read_name(f, partialcrc=0):
+    """ Read a nul terminated name from the file
+
+    Args:
+        f: the file from which the name should be read. The method will start
+            reading from where the file pointer in that file is at the moment.
+        partialcrc: A partial crc code of earlier read data, that should be
+            taken into account.
+    Returns:
+        name, partialcrc: The name that was read and the crc code of the data
+            that was read, taking into account a partial crc code if there is
+            any.
+    """
     name = ""
     (byte, partialcrc) = read_calc_crc(f, 1, partialcrc)
     while byte != '\0':
@@ -82,6 +118,14 @@ def read_name(f, partialcrc=0):
 
 
 def read_index_entries(f, header):
+    """ Read all index entries in the index file
+
+    Args:
+        f: the file from which the index entries should be read.
+        header: the header of the index file
+    Returns:
+        A list of all index entries
+    """
     # Skip header and directory offsets
     # Header size = 24 bytes, each extension offset and dir offset is 4 bytes
     f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
@@ -102,6 +146,18 @@ def read_index_entries(f, header):
 
 
 def read_file(f, pathname):
+    """ Read a single file from the index
+
+    Args:
+        f: the index file from which the file data should be read.
+        pathname: the pathname of the file, with which the filename is
+            combined to get the full path
+    Returns:
+        A dict with all filedata
+    Raises:
+        CrcError: The crc code in the index file doesn't match with the crc
+            code of the read data.
+    """
     # A little cheating here in favor of simplicity and execution speed.
     # The fileoffset is only read when really needed, in the other cases
     # it's just calculated from the file position, to save on reads and
@@ -126,6 +182,22 @@ def read_file(f, pathname):
 
 
 def read_files(f, directories, dirnr, files_out):
+    """ Read all files from the index and combine them with their respective
+    pathname. Files are read lexically ordered. The function does this
+    recursively
+
+    Args:
+        f: the index file from which the files should be read
+        directories: all directories that are in the index file
+        dirnr: The files of the dirnrth directory are read. This has to be 0
+            for the initial call.
+        files_out: The list into which is used to store the files. Pass a
+            empty list at the initial call. The list will contain all the files
+            when the function returns.
+    Returns:
+        dirnr: The number of the directory that was used last. Of no use in the
+            function that calls read_files
+    """
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
         queue.append(read_file(f, directories[dirnr]["pathname"]))
@@ -141,6 +213,16 @@ def read_files(f, directories, dirnr, files_out):
 
 
 def read_dir(f):
+    """ Read a single directory from the index file.
+
+    Args:
+        f: The index file from which the directory data should be read
+    Returns:
+        A dict with all file data
+    Raises:
+        CrcError: The crc code in the file doesn't match with the crc code
+            of the data that was read
+    """
     (pathname, partialcrc) = read_name(f)
 
     (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size,
@@ -159,6 +241,14 @@ def read_dir(f):
 
 
 def read_dirs(f, ndir):
+    """ Read all directories from the index file.
+
+    Args:
+        f: The index file from which the directories should be read
+        ndir: Number of directory that should be read
+    Returns:
+        A list of all directories in the index file
+    """
     dirs = list()
     for i in xrange(ndir):
         dirs.append(read_dir(f))
