@@ -30,6 +30,7 @@ def read_calc_crc(f, n, partialcrc=0):
 
 
 def read_header(f):
+    # 4 byte signature
     (signature, partialcrc) = read_calc_crc(f, 4)
     (readheader, partialcrc) = read_calc_crc(f,
             HEADER_STRUCT.size, partialcrc)
@@ -46,7 +47,7 @@ def read_header(f):
                 CRC_STRUCT.size, partialcrc)
         extoffsets.append(readoffset)
 
-    crc = f.read(4)
+    crc = f.read(CRC_STRUCT.size)
     datacrc = CRC_STRUCT.pack(partialcrc)
 
     if crc != datacrc:
@@ -137,7 +138,7 @@ def read_dir(f):
     (objname, partialcrc) = read_calc_crc(f, 20, partialcrc)
 
     datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(4)
+    crc = f.read(CRC_STRUCT.size)
     if crc != datacrc:
         raise Exception("Wrong crc for directory entry: " + pathname)
 
