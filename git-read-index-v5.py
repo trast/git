@@ -22,6 +22,20 @@ CRC_STRUCT = struct.Struct("!i")
 OFFSET_STRUCT = struct.Struct("!I")
 FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
+HEADER_FORMAT = """\
+Signature: %(signature)s\t\t\tVersion: %(vnr)s
+Number of directories: %(ndir)s\tNumber of files: %(nfile)s
+Number of extensions: %(nextensions)s"""
+
+DIRECTORY_FORMAT = """\
+path: %(pathname)s flags: %(flags)s foffset: %(foffset)s
+ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s
+nentries: %(nentries)s objname: %(objname)s"""
+
+FILES_FORMAT = """\
+%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s
+mode: %(mode)s flags: %(flags)s\nstatcrc: """
+
 
 def read_calc_crc(f, n, partialcrc=0):
     data = f.read(n)
@@ -153,24 +167,18 @@ def read_dirs(f, ndir):
 
 
 def print_header(header):
-    print("Signature: %(signature)s\t\t\tVersion: %(vnr)s\n"
-            "Number of directories: %(ndir)s\tNumber of files: %(nfile)s\n"
-            "Number of extensions: %(nextensions)s" % header)
+    print(HEADER_FORMAT % header)
 
 
 def print_directories(directories):
     for d in directories:
-        print ("path: %(pathname)s flags: %(flags)s foffset: %(foffset)s "
-                "ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s "
-                "nentries: %(nentries)s objname: %(objname)s" % d)
+        print (DIRECTORY_FORMAT % d)
 
 
 def print_files(files, verbose=False):
     for fi in files:
         if verbose:
-            print ("%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s\n"
-                    "mode: %(mode)s flags: %(flags)s\nstatcrc: " % fi
-                    + hex(fi["statcrc"]))
+            print (FILES_FORMAT % fi + hex(fi["statcrc"]))
         else:
             print fi["name"]
 
