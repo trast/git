@@ -11,134 +11,156 @@ import struct
 import os.path
 from collections import defaultdict
 
-#  fread {{{
-f = open(".git/index", "rb")
-filedata = list()
+
+class Reader():
+    def __init__(self):
+        self._sha1 = hashlib.sha1()
+        self._f = open(".git/index", "rb")
+
+    def read(self, n):
+        data = self._f.read(n)
+        self._sha1.update(data)
+        return data
+
+    def read_without_updating_sha1(self, n):
+        return self._f.read(n)
+
+    def tell(self):
+        return self._f.tell()
+
+    def updateSha1(self, data):
+        self._sha1.update(data)
+
+    def getSha1(self):
+        return self._sha1
+
+# File formats
+HEADER_FORMAT = """\
+Signature: %(signature)s
+Version: %(version)s
+Number of entries: %(nrofentries)s"""
+
+ENTRIES_FORMAT = """\
+ctime: %(ctimesec)s:%(ctimensec)s
+mtime: %(mtimesec)s:%(mtimensec)s
+dev: %(dev)s\tino: %(ino)s
+uid: %(uid)s\tgid: %(gid)s
+size: %(filesize)s\tflags: """
+
+EXTENSION_FORMAT = """\
+%(sha1)s %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
+
+REUCEXTENSION_FORMAT = """\
+Path: %(path)s
+Entrymode 1: %(entry_mode0)s Entrymode 2: %(entry_mode1)s Entrymode 3:\
+        %(entry_mode2)s"""
+
+EXTENSION_FORMAT_WITHOUT_SHA = """\
+invalid %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
+
+HEADER_STRUCT = struct.Struct("!4sII")
+
+STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
+STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
 
 
-def fread(n):
-    global filedata
-    data = f.read(n)
-    filedata.append(data)
-    return data
-# }}}
-
-
-# fwrite {{{
-fw = open(".git/index-v5", "wb")
-writtenbytes = 0
-writtendata = list()
-
-
-def fwrite(data):
-    global writtenbytes
-    global writtendata
-    writtendata.append(data)
-    writtenbytes += len(data)
+def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
-# }}}
+    crc = binascii.crc32(data, partialcrc)
+    return crc
 
 
-# convert {{{
-def convert(n):
-    return str(struct.unpack('!I', n)[0])
-# }}}
+def read_name(r, delimiter):
+    string = ""
+    byte = r.read(1)
+    readbytes = 1
+    while byte != delimiter:
+        string = string + byte
+        byte = r.read(1)
+        readbytes += 1
+    return string, readbytes
 
 
-# readheader {{{
-def readheader(f):
-    # Signature
-    signature = fread(4)
-    header = struct.unpack('!II', fread(8))
-    return dict({"signature": signature, "version": header[0], "nrofentries": header[1]})
-# }}}
+def read_header(r):
+    (signature, version, nrofentries) = HEADER_STRUCT.unpack(
+            r.read(HEADER_STRUCT.size))
+    return dict(signature=signature, version=version, nrofentries=nrofentries)
 
 
-# readindexentries {{{
-def readindexentries(f):
+def read_entry(r, header):
+    if header["version"] == 3:
+        entry = STAT_DATA_STRUCT_EXTENDED_FLAGS.unpack(
+                r.read(STAT_DATA_STRUCT_EXTENDED_FLAGS.size))
+    else:
+        entry = STAT_DATA_STRUCT.unpack(
+                r.read(STAT_DATA_STRUCT.size))
+
+    (name, readbytes) = read_name(r, '\0')
+
+    pathname = os.path.dirname(name)
+    filename = os.path.basename(name)
+
+    entry = entry + (pathname, filename)           # Filename
+
+    if (header["version"] == 3):
+        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec',
+            'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
+            'sha1', 'flags', 'xtflags', 'pathname', 'filename'), entry))
+    else:
+        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec',
+            'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
+            'sha1', 'flags', 'pathname', 'filename'), entry))
+
+    if header["version"] == 2:
+        j = 8 - (readbytes + 5) % 8
+    else:
+        j = 8 - (readbytes + 1) % 8
+
+    # Just throw the padding away.
+    r.read(j - 1)
+
+    return dictentry
+
+
+def read_index_entries(r):
     indexentries = []
     conflictedentries = defaultdict(list)
     paths = set()
     files = list()
     filedirs = defaultdict(list)
-    byte = fread(1)
-    i = 0
     # Read index entries
-    while i < header["nrofentries"]:
-        entry = struct.unpack('!IIIIIIIIII', byte + fread(39))  # stat data
-        entry = entry + (str(binascii.hexlify(fread(20))),)     # SHA-1
+    for i in xrange(header["nrofentries"]):
+        entry = read_entry(r, header)
 
-        if (header["version"] == 3):
-            entry = entry + struct.unpack('!hh', fread(4))      # Flags + extended flags
-        else:
-            entry = entry + struct.unpack('!h', fread(2))       # Flags
+        paths.add(entry["pathname"])
+        files.append(entry["filename"])
+        filedirs[entry["pathname"]].append(entry["filename"])
 
-        string = ""
-        byte = fread(1)
-        readbytes = 1
-        while byte != '\0':
-            string = string + byte
-            byte = fread(1)
-            readbytes += 1
-
-        pathname = os.path.dirname(string)
-        filename = os.path.basename(string)
-        paths.add(pathname)
-        files.append(filename)
-        filedirs[pathname].append(filename)
-
-        entry = entry + (pathname, filename)           # Filename
-
-        if (header["version"] == 3):
-            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec',
-                'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
-                'xtflags', 'pathname', 'filename'), entry))
-        else:
-            dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec', 'mtimensec',
-                'dev', 'ino', 'mode', 'uid', 'gid', 'filesize', 'sha1', 'flags',
-                'pathname', 'filename'), entry))
-
-        if header["version"] == 2:
-            j = 8 - (readbytes + 5) % 8
-        else:
-            j = 8 - (readbytes + 1) % 8
-
-        while byte == '\0' and j > 0:
-            byte = fread(1)
-            j -= 1
-
-        stage = (entry[11] & 0b0011000000000000) / 0b001000000000000
+        stage = (entry['flags'] & 0b0011000000000000) / 0b001000000000000
 
         if stage == 0:      # Not conflicted
-            indexentries.append(dictentry)
+            indexentries.append(entry)
         else:                   # Conflicted
-            if stage == 1:  # Write the stage 1 entry to the main index, to avoid rewriting the whole index once the conflict is resolved
-                indexentries.append(dictentry)
-            conflictedentries[pathname].append(dictentry)
+            if stage == 1:
+                # Write the stage 1 entry to the main index, to avoid
+                # rewriting the whole index once the conflict is resolved
+                indexentries.append(entry)
+            conflictedentries[entry["pathname"]].append(entry)
 
-        i = i + 1
-
-    return indexentries, conflictedentries, byte, paths, files, filedirs
-# }}}
+    return indexentries, conflictedentries, paths, files, filedirs
 
 
-# readextensiondata {{{
-def readextensiondata(f):
-    extensionsize = fread(4)
+def read_extensiondata(r):
+    extensionsize = r.read(4)
 
     read = 0
     subtreenr = [0]
     subtree = [""]
     listsize = 0
     extensiondata = dict()
-    while read < int(convert(extensionsize)):
-        path = ""
-        byte = fread(1)
-        read += 1
-        while byte != '\0':
-            path += byte
-            byte = fread(1)
-            read += 1
+    while read < int(struct.unpack("!I", extensionsize)[0]):
+        (path, readbytes) = read_name(r, '\0')
+        read += readbytes
 
         while listsize >= 0 and subtreenr[listsize] == 0:
             subtreenr.pop()
@@ -153,348 +175,176 @@ def readextensiondata(f):
             subtreenr[listsize] = subtreenr[listsize] - 1
         fpath += path + "/"
 
-        entry_count = ""
-        byte = fread(1)
-        read += 1
-        while byte != " ":
-            entry_count += byte
-            byte = fread(1)
-            read += 1
+        (entry_count, readbytes) = read_name(r, " ")
+        read += readbytes
 
-        subtrees = ""
-        byte = fread(1)
-        read += 1
-        while byte != "\n":
-            subtrees += byte
-            byte = fread(1)
-            read += 1
+        (subtrees, readbytes) = read_name(r, "\n")
+        read += readbytes
 
         subtreenr.append(int(subtrees))
         subtree.append(path)
         listsize += 1
 
         if entry_count != "-1":
-            sha1 = binascii.hexlify(fread(20))
+            sha1 = binascii.hexlify(r.read(20))
             read += 20
         else:
             sha1 = "invalid"
 
         if sha1 == "invalid":
-            extensiondata[fpath] = dict({"path": fpath, "entry_count": entry_count,
-            "subtrees": subtrees})
+            extensiondata[fpath] = dict(path=fpath,
+                entry_count=entry_count, subtrees=subtrees)
         else:
-            extensiondata[fpath] = dict({"path": fpath, "entry_count": entry_count,
-            "subtrees": subtrees, "sha1": sha1})
+            extensiondata[fpath] = dict(path=fpath,
+                entry_count=entry_count, subtrees=subtrees, sha1=sha1)
 
     return extensiondata
-# }}}
 
 
-# readreucextensiondata {{{
-def readreucextensiondata(f):
-    extensionsize = fread(4)
+def read_reuc_extension_entry(r):
+    (path, readbytes) = read_name(r, '\0')
+    read = readbytes
+
+    entry_mode = list()
+    i = 0
+    while i < 3:
+        (mode, readbytes) = read_name(r, '\0')
+        read += readbytes
+        i += 1
+
+        entry_mode.append(int(mode, 8))
+
+    obj_names = list()
+    for i in xrange(3):
+        if entry_mode[i] != 0:
+            obj_names.append(r.read(20))
+            read += 20
+        else:
+            obj_names.append("")
+
+    return dict(path=path, entry_mode0=entry_mode[0], entry_mode1=entry_mode[1],
+            entry_mode2=entry_mode[2], obj_names0=obj_names[0],
+            obj_names1=obj_names[1], obj_names2=obj_names[2]), read
+
+
+def read_reuc_extensiondata(r):
+    extensionsize = r.read(4)
 
     read = 0
     extensiondata = defaultdict(list)
-    while read < int(convert(extensionsize)):
-        path = ""
-        byte = fread(1)
-        read += 1
-        while byte != '\0':
-            path += byte
-            byte = fread(1)
-            read += 1
-
-        entry_mode = list()
-        i = 0
-        while i < 3:
-            byte = fread(1)
-            read += 1
-            mode = ""
-            while byte != '\0':
-                mode += byte
-                byte = fread(1)
-                read += 1
-            i += 1
-
-            entry_mode.append(int(mode, 8))
-
-        i = 0
-        obj_names = list()
-        while i < 3:
-            if entry_mode[i] != 0:
-                obj_names.append(fread(20))
-                read += 20
-            else:
-                obj_names.append("")
-            i += 1
-
-        extensiondata["/".join(path.split("/"))[:-1]].append(dict({"path": path, "entry_mode0": entry_mode[0], "entry_mode1": entry_mode[1], "entry_mode2": entry_mode[2], "obj_names0": obj_names[0], "obj_names1": obj_names[1], "obj_names2": obj_names[2]}))
+    while read < int(struct.unpack("!I", extensionsize)[0]):
+        (entry, readbytes) = read_reuc_extension_entry(r)
+        read += readbytes
+        extensiondata["/".join(entry["path"].split("/"))[:-1]].append(entry)
 
     return extensiondata
 
-# }}}
+
+def print_header(header):
+    print HEADER_FORMAT % header
 
 
-# printheader {{{
-def printheader(header):
-    print "Signature: " + header["signature"]
-    print "Version: " + str(header["version"])
-    print "Number of entries: " + str(header["nrofentries"])
-# }}}
-
-
-# printindexentries {{{
-def printindexentries(indexentries):
+def print_indexentries(indexentries):
     for entry in indexentries:
         if entry["pathname"] != "":
             print entry["pathname"] + "/" + entry["filename"]
         else:
             print entry["filename"]
-        print "  ctime: " + str(entry["ctimesec"]) + ":" + str(entry["ctimensec"])
-        print "  mtime: " + str(entry["mtimesec"]) + ":" + str(entry["mtimensec"])
-        print "  dev: " + str(entry["dev"]) + "\tino: " + str(entry["ino"])
-        print "  uid: " + str(entry["uid"]) + "\tgid: " + str(entry["gid"])
-        print "  size: " + str(entry["filesize"]) + "\tflags: " + "%x" % entry["flags"]
-# }}}
+        print ENTRIES_FORMAT % entry + "%x" % entry["flags"]
 
 
-# {{{ printextensiondata
-def printextensiondata(extensiondata):
-    for entry in extensiondata.viewvalues():
-        print entry["sha1"] + " " + entry["path"] + " (" + entry["entry_count"] + " entries, " + entry["subtrees"] + " subtrees)"
-# }}}
-
-
-# printreucextensiondata {{{
-def printreucextensiondata(extensiondata):
-    for e in extensiondata:
-        print "Path: " + e["path"]
-        print "Entrymode 1: " + str(e["entry_mode0"]) + " Entrymode 2: " + str(e["entry_mode1"]) + " Entrymode 3: " + str(e["entry_mode2"])
-        print "Objectnames 1: " + binascii.hexlify(e["obj_names0"]) + " Objectnames 2: " + binascii.hexlify(e["obj_names1"]) + " Objectnames 3: " + binascii.hexlify(e["obj_names2"])
-# }}}
-
-
-# Write stuff for index-v5 draft0 {{{
-# writev5_0header {{{
-def writev5_0header(header, paths, files):
-    fwrite(header["signature"])
-    fwrite(struct.pack("!IIIIQ", header["version"], len(paths), len(files), header["nrofentries"], 0))
-# }}}
-
-
-# writev5_0directories {{{
-def writev5_0directories(paths, treeextensiondata):
-    offsets = dict()
-    subtreenr = dict()
-    # Calculate subtree numbers
-    for p in sorted(paths, reverse=True):
-        splited = p.split("/")
-        if p not in subtreenr:
-            subtreenr[p] = 0
-        if len(splited) > 1:
-            i = 0
-            path = ""
-            while i < len(splited) - 1:
-                path += "/" + splited[i]
-                i += 1
-            if path[1:] not in subtreenr:
-                subtreenr[path[1:]] = 1
-            else:
-                subtreenr[path[1:]] += 1
-
-    for p in paths:
-        offsets[p] = writtenbytes
-        fwrite(struct.pack("!Q", 0))
-        fwrite(p.split("/")[-1] + "\0")
-        p += "/"
-        if p in treeextensiondata:
-            fwrite(struct.pack("!ll", int(treeextensiondata[p]["entry_count"]), int(treeextensiondata[p]["subtrees"])))
-            if (treeextensiondata[p]["entry_count"] != "-1"):
-                fwrite(binascii.unhexlify(treeextensiondata[p]["sha1"]))
-
-        else:  # If there is no cache-tree data we assume the entry is invalid
-            fwrite(struct.pack("!ii", -1, subtreenr[p.strip("/")]))
-    return offsets
-# }}}
-
-
-# writev5_0files {{{
-def writev5_0files(files):
-    offsets = dict()
-    for f in files:
-        offsets[f] = writtenbytes
-        fwrite(f)
-        fwrite("\0")
-    return offsets
-# }}}
-
-
-# writev5_0fileentries {{{
-def writev5_0fileentries(entries, fileoffsets):
-    offsets = dict()
-    for e in sorted(entries, key=lambda k: k['pathname']):
-        if e["pathname"] not in offsets:
-            offsets[e["pathname"]] = writtenbytes
-        fwrite(struct.pack("!IIIIIIIIII", e["ctimesec"], e["ctimensec"],
-            e["mtimesec"], e["mtimensec"], e["dev"], e["ino"], e["mode"],
-            e["uid"], e["gid"], e["filesize"]))
-        fwrite(binascii.unhexlify(e["sha1"]))
-
+def print_extensiondata(extensiondata):
+    for entry in sorted(extensiondata.itervalues()):
         try:
-            fwrite(struct.pack("!III", e["flags"], e["xtflags"],
-                fileoffsets[e["filename"]]))
+            print EXTENSION_FORMAT % entry
         except KeyError:
-            fwrite(struct.pack("!III", e["flags"], 0,
-                fileoffsets[e["filename"]]))
-
-        writecrc32()
-    return offsets
-# }}}
+            print EXTENSION_FORMAT_WITHOUT_SHA % entry
 
 
-# writev5_0fileoffsets {{{
-def writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset):
-    for d in sorted(diroffsets):
-        fw.seek(diroffsets[d])
-        fw.write(struct.pack("!Q", fileoffsets[d]))
-
-    # Calculate crc32
-    #f.seek(0)
-    #data = f.read(dircrcoffset)
-    fw.seek(dircrcoffset)
-    fw.write(struct.pack("!I", binascii.crc32(writtendata) & 0xffffffff))
-
-# }}}
+def print_reucextensiondata(extensiondata):
+    for e in extensiondata:
+        print REUCEXTENSION_FORMAT % e
+        print ("Objectnames 1: " + binascii.hexlify(e["obj_names0"]) +
+                " Objectnames 2: " + binascii.hexlify(e["obj_names1"]) +
+                " Objectnames 3: " + binascii.hexlify(e["obj_names2"]))
 
 
-# writev5_0reucextensiondata {{{
-def writev5_0reucextensiondata(data):
-    global writtenbytes
-    offset = writtenbytes
-    for d in data:
-        fwrite(d["path"])
-        fwrite("\0")
-        stages = set()
-        fwrite(struct.pack("!b", 0))
-        for i in xrange(0, 2):
-            fwrite(struct.pack("!i", d["entry_mode" + str(i)]))
-            if d["entry_mode" + str(i)] != 0:
-                stages.add(i)
-
-        for i in sorted(stages):
-            fwrite(d["obj_names" + str(i)])
-    writecrc32()
-    fw.seek(20)
-    fw.write(struct.pack("!Q", offset))
-# }}}
+def writev5_1header(fw, header, paths, files):
+    partialcrc = write_calc_crc(fw, header["signature"])
+    crc = write_calc_crc(fw, struct.pack("!IIII", 5, len(paths),
+        len(files), 0), partialcrc)
+    fw.write(struct.pack("!i", crc))
 
 
-# writev5_0conflicteddata {{{
-def writev5_0conflicteddata(conflicteddata):
-    print "Not implemented yet"
-# }}}
-
-# }}}
-
-
-# Write stuff for index-v5 draft1 {{{
-# Write header {{{
-def writev5_1header(header, paths, files):
-    fwrite(header["signature"])
-    fwrite(struct.pack("!IIII", 5, len(paths), len(files), 0))
-# }}}
-
-
-# Write fake directory offsets which can only be filled in later {{{
-def writev5_1fakediroffsets(paths):
+def writev5_1fakediroffsets(fw, paths):
+    # There is no need to calculate the crc for the fake offsets, since they
+    # will be overwritten later anyway
     for p in paths:
-        fwrite(struct.pack("!I", 0))
-# }}}
+        fw.write(struct.pack("!I", 0))
 
 
-# Write directories {{{
-def writev5_1directories(paths):
+def writev5_1directories(fw, paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
     dirdata = defaultdict(dict)
     for p in sorted(paths):
-        diroffsets.append(writtenbytes)
+        diroffsets.append(fw.tell())
 
         # pathname
         if p == "":
-            fwrite("\0")
+            fw.write("\0")
         else:
-            fwrite(p + "/\0")
+            fw.write(p + "/\0")
 
-        dirwritedataoffsets[p] = writtenbytes
+        dirwritedataoffsets[p] = fw.tell()
 
         # flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname, dircrc
         # All this fields will be filled out when the rest of the index
         # is written
-        fwrite(struct.pack("!HIIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-
-        # Subtreenr for later usage
-        if p != "":
-            path = p.split("/")
-            try:
-                dirdata["/".join(path[:-1])]["nsubtrees"] += 1
-            except KeyError:
-                dirdata["/".join(path[:-1])]["nsubtrees"] = 1
+        # CRC will be calculated when data is filled in
+        fw.write(struct.pack("!HIIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0))
 
     return diroffsets, dirwritedataoffsets, dirdata
-# }}}
 
 
-# Write fake file offsets {{{
-def writev5_1fakefileoffsets(indexentries):
-    beginning = writtenbytes
+def writev5_1fakefileoffsets(fw, indexentries):
+    beginning = fw.tell()
     for f in indexentries:
-        fwrite(struct.pack("!I", 0))
+        fw.write(struct.pack("!I", 0))
     return beginning
-# }}}
 
 
-# Write directory offsets for real {{{
-def writev5_1diroffsets(offsets):
+def writev5_1diroffsets(fw, offsets):
     fw.seek(24)
     for o in offsets:
         fw.write(struct.pack("!I", o))
-# }}}
 
 
-# Write file data {{{
-def writev5_1filedata(indexentries, dirdata):
-    global writtenbytes
-    global writtendata
+def writev5_1filedata(fw, indexentries, dirdata):
     fileoffsets = list()
-    writtendata = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
-        offset = writtenbytes
+        offset = fw.tell()
         fileoffsets.append(offset)
-        writtendata.append(struct.pack("!I", fw.tell()))
-        fwrite(entry["filename"] + "\0")
+        partialcrc = binascii.crc32(struct.pack("!I", fw.tell()))
+        partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
 
         # Prepare flags
         # TODO: Consider extended flags
         flags = entry["flags"] & 0b1000000000000000
         flags += (entry["flags"] & 0b0011000000000000) * 2
-        fwrite(struct.pack("!H", flags))
-
-        # mode
-        fwrite(struct.pack("!H", entry["mode"]))
-
-        # mtime
-        fwrite(struct.pack("!I", entry["mtimesec"]))
-        fwrite(struct.pack("!I", entry["mtimensec"]))
 
         # calculate crc for stat data
-        crc = binascii.crc32(struct.pack("!IIIIIIII", offset, entry["ctimesec"], entry["ctimensec"], entry["ino"], entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
-        fwrite(struct.pack("!i", crc))
+        stat_crc = binascii.crc32(struct.pack("!IIIIIIII", offset,
+            entry["ctimesec"], entry["ctimensec"], entry["ino"],
+            entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
 
-        fwrite(binascii.unhexlify(entry["sha1"]))
+        partialcrc = write_calc_crc(fw, struct.pack("!HHIIi", flags, entry["mode"],
+            entry["mtimesec"], entry["mtimensec"], stat_crc), partialcrc)
 
-        writecrc32()
+        partialcrc = write_calc_crc(fw, entry["sha1"], partialcrc)
+
+        fw.write(struct.pack("!i", partialcrc))
         try:
             dirdata[entry["pathname"]]["nfiles"] += 1
         except KeyError:
@@ -502,20 +352,15 @@ def writev5_1filedata(indexentries, dirdata):
 
     return fileoffsets, dirdata
 
-# }}}
 
-
-# Write file offsets for read {{{
-def writev5_1fileoffsets(foffsets, fileoffsetbeginning):
+def writev5_1fileoffsets(fw, foffsets, fileoffsetbeginning):
     fw.seek(fileoffsetbeginning)
     for f in foffsets:
         fw.write(struct.pack("!I", f))
-# }}}
 
 
-# Write correct directory data {{{
-def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
-    global writtendata
+def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+        fileoffsetbeginning):
     foffset = fileoffsetbeginning
     for d in sorted(dirdata.iteritems()):
         try:
@@ -523,9 +368,10 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
         except KeyError:
             continue
         if d[0] == "":
-            writtendata = [d[0] + "\0"]
+            partialcrc = binascii.crc32(d[0] + "\0")
         else:
-            writtendata = [d[0] + "/\0"]
+            partialcrc = binascii.crc32(d[0] + "/\0")
+
         try:
             nsubtrees = d[1]["nsubtrees"]
         except KeyError:
@@ -537,46 +383,55 @@ def writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning):
             nfiles = 0
 
         try:
-            fwrite(struct.pack("!H", d[1]["flags"]))
+            partialcrc = write_calc_crc(fw, struct.pack("!H", d[1]["flags"]),
+                    partialcrc)
         except KeyError:
-            fwrite(struct.pack("!H", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!H", 0),
+                    partialcrc)
 
         if nfiles == -1 or nfiles == 0:
-            fwrite(struct.pack("!I", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
+                    partialcrc)
         else:
-            fwrite(struct.pack("!I", foffset))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", foffset),
+                    partialcrc)
             foffset += (nfiles) * 4
 
         try:
-            fwrite(struct.pack("!I", d[1]["cr"]))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", d[1]["cr"]),
+                    partialcrc)
         except KeyError:
-            fwrite(struct.pack("!I", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
+                    partialcrc)
 
         try:
-            fwrite(struct.pack("!I", d[1]["ncr"]))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", d[1]["ncr"]),
+                    partialcrc)
         except KeyError:
-            fwrite(struct.pack("!I", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
+                    partialcrc)
 
-        fwrite(struct.pack("!I", nsubtrees))
-        fwrite(struct.pack("!I", nfiles))
+        partialcrc = write_calc_crc(fw, struct.pack("!I", nsubtrees), partialcrc)
+        partialcrc = write_calc_crc(fw, struct.pack("!I", nfiles), partialcrc)
 
         try:
-            fwrite(struct.pack("!i", d[1]["nentries"]))
+            partialcrc = write_calc_crc(fw, struct.pack("!i", d[1]["nentries"]),
+                    partialcrc)
         except KeyError:
-            fwrite(struct.pack("!I", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
+                    partialcrc)
 
         try:
-            fwrite(binascii.unhexlify(d[1]["objname"]))
+            partialcrc = write_calc_crc(fw, binascii.unhexlify(d[1]["objname"]),
+                    partialcrc)
         except KeyError:
-            fwrite(struct.pack("!IIIII", 0, 0, 0, 0, 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!IIIII", 0, 0, 0, 0, 0),
+                    partialcrc)
 
-        writecrc32()
-# }}}
+        fw.write(struct.pack("!i", partialcrc))
 
 
-# Write conflicted data {{{
-def writev5_1conflicteddata(conflictedentries, reucdata, dirdata):
-    global writtenbytes
+def writev5_1conflicteddata(fw, conflictedentries, reucdata, dirdata):
     for d in sorted(conflictedentries):
         for f in d:
             if d["pathname"] == "":
@@ -590,133 +445,101 @@ def writev5_1conflicteddata(conflictedentries, reucdata, dirdata):
             except KeyError:
                 dirdata[filename]["ncr"] = 1
 
-            fwrite(d["pathname"] + d["filename"])
-            fwrite("\0")
+            partialcrc = write_calc_crc(fw, d["pathname"] + d["filename"] + "\0")
             stages = set()
-            fwrite(struct.pack("!b", 0))
+            partialcrc = write_calc_crc(fw, struct.pack("!b", 0), partialcrc)
             for i in xrange(0, 2):
-                fwrite(struct.pack("!i", d["mode"]))
+                partialcrc = write_calc_crc(fw, struct.pack("!i", d["mode"]),
+                        partialcrc)
                 if d["mode"] != 0:
                     stages.add(i)
 
             for i in sorted(stages):
-                print i
-                fwrite(binascii.unhexlify(d["sha1"]))
+                partialcrc = write_calc_crc(fw, binascii.unhexlify(d["sha1"]),
+                        partialcrc)
 
-            writecrc32()
-
-        for f in reucdata[d]:
-            print f
+            fw.write(struct.pack("!i", partialcrc))
 
     return dirdata
-# }}}
 
 
-# Compile cachetreedata and factor it into the dirdata
 def compilev5_1cachetreedata(dirdata, extensiondata):
     for entry in extensiondata.iteritems():
-        dirdata[entry[1]["path"].strip("/")]["nentries"] = int(entry[1]["entry_count"])
+        dirdata[entry[1]["path"].strip("/")]["nentries"] = \
+                int(entry[1]["entry_count"])
         try:
             dirdata[entry[1]["path"].strip("/")]["objname"] = entry[1]["sha1"]
         except:
-            pass  # Cache tree entry invalid
+            continue  # Cache tree invalid
 
         try:
-            if dirdata[entry[1]["path"].strip("/")]["nsubtrees"] != entry[1]["subtreenr"]:
-                print entry[0]
-                print dirdata[entry[1]["path"].strip("/")]["nsubtrees"]
-                print entry[1]["subtreenr"]
+            dirdata[entry[1]["path"].strip("/")]["nsubtrees"] = \
+                    entry[1]["subtreenr"]
         except KeyError:
             pass
 
     return dirdata
-# }}}
-
-# }}}
 
 
-# writecrc32 {{{
-def writecrc32():
-    global writtendata
-    crc = binascii.crc32("".join(writtendata))
-    fwrite(struct.pack("!i", crc))
-    writtendata = list()  # Reset writtendata for next crc32
-# }}}
+r = Reader()
+header = read_header(r)
 
+(indexentries, conflictedentries, paths, files,
+        filedirs) = read_index_entries(r)
 
-header = readheader(f)
-
-indexentries, conflictedentries, byte, paths, files, filedirs = readindexentries(f)
-
-filedata = filedata[:-1]
-ext = byte + f.read(3)
+ext = r.read_without_updating_sha1(4)
 extensiondata = []
 
 ext2 = ""
 if ext == "TREE":
-    filedata += ext
-    treeextensiondata = readextensiondata(f)
-    ext2 = f.read(4)
+    r.updateSha1(ext)
+    treeextensiondata = read_extensiondata(r)
+    ext2 = r.read_without_updating_sha1(4)
 else:
     treeextensiondata = dict()
 
 if ext == "REUC" or ext2 == "REUC":
     if ext == "REUC":
-        filedata += ext
+        r.updateSha1(ext)
     else:
-        filedata += ext2
-    reucextensiondata = readreucextensiondata(f)
+        r.updateSha1(ext2)
+    reucextensiondata = read_reuc_extensiondata(r)
 else:
     reucextensiondata = list()
 
-# printheader(header)
-# printindexentries(indexentries)
-# printextensiondata(extensiondata)
-# printreucextensiondata(reucextensiondata)
+print_header(header)
+print_indexentries(indexentries)
+print_extensiondata(treeextensiondata)
+print_reucextensiondata(reucextensiondata)
 
+sha1 = r.getSha1()
 
 if ext != "TREE" and ext != "REUC" and ext2 != "REUC":
-    sha1read = ext + f.read(16)
+    sha1read = ext + r.read_without_updating_sha1(16)
 elif ext2 != "REUC" and ext == "TREE":
-    sha1read = ext2 + f.read(16)
+    sha1read = ext2 + r.read_without_updating_sha1(16)
 else:
-    sha1read = f.read(20)
+    sha1read = r.read_without_updating_sha1(20)
 
 print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
 
-sha1 = hashlib.sha1()
-sha1.update("".join(filedata))
 print "SHA1 over filedata: " + str(sha1.hexdigest())
 
 if sha1.hexdigest() == binascii.hexlify(sha1read):
-    # Write v5_0 {{{
-    # writev5_0header(header, paths, files)
-    # diroffsets = writev5_0directories(sorted(paths), treeextensiondata)
-    # fileoffsets = writev5_0files(files)
-    # dircrcoffset = writtenbytes
+    fw = open(".git/index-v5", "wb")
 
-    # # TODO: Replace with something faster. Doesn't make sense to calculate crc32 here
-    # writecrc32()
-    # fileoffsets = writev5_0fileentries(indexentries, fileoffsets)
-    # writev5_0reucextensiondata(reucextensiondata)
-    # writev5_0conflicteddata(conflictedentries)
-    # writev5_0fileoffsets(diroffsets, fileoffsets, dircrcoffset)
-    # }}}
-
-    # Write v5_1 {{{
-    writev5_1header(header, paths, files)
-    writecrc32()
-    writev5_1fakediroffsets(paths)
-    # writecrc32() # TODO Check if needed
-    diroffsets, dirwritedataoffsets, dirdata = writev5_1directories(paths)
-    fileoffsetbeginning = writev5_1fakefileoffsets(indexentries)
-    # writecrc32() # TODO Check if needed
-    fileoffsets, dirdata = writev5_1filedata(indexentries, dirdata)
-    dirdata = writev5_1conflicteddata(conflictedentries, reucextensiondata, dirdata)
-    writev5_1diroffsets(diroffsets)
-    writev5_1fileoffsets(fileoffsets, fileoffsetbeginning)
+    writev5_1header(fw, header, paths, files)
+    writev5_1fakediroffsets(fw, paths)
+    (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
+            paths)
+    fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
+    fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
+    dirdata = writev5_1conflicteddata(fw, conflictedentries, reucextensiondata,
+            dirdata)
+    writev5_1diroffsets(fw, diroffsets)
+    writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
     dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
-    writev5_1directorydata(dirdata, dirwritedataoffsets, fileoffsetbeginning)
-    # }}}
+    writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+            fileoffsetbeginning)
 else:
     print "File is corrupted"
