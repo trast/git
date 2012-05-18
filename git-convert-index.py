@@ -134,7 +134,7 @@ def read_entry(r, header):
     return dictentry
 
 
-def read_index_entries(r):
+def read_index_entries(r, header):
     indexentries = []
     conflictedentries = defaultdict(list)
     paths = set()
@@ -452,65 +452,69 @@ def compilev5_1cachetreedata(dirdata, extensiondata):
     return dirdata
 
 
-r = Reader()
-header = read_header(r)
+def main():
+    r = Reader()
+    header = read_header(r)
 
-(indexentries, conflictedentries, paths, files,
-        filedirs) = read_index_entries(r)
+    (indexentries, conflictedentries, paths, files,
+            filedirs) = read_index_entries(r, header)
 
-ext = r.read_without_updating_sha1(4)
-extensiondata = []
+    ext = r.read_without_updating_sha1(4)
+    extensiondata = []
 
-ext2 = ""
-if ext == "TREE":
-    r.updateSha1(ext)
-    treeextensiondata = read_extensiondata(r)
-    ext2 = r.read_without_updating_sha1(4)
-else:
-    treeextensiondata = dict()
-
-if ext == "REUC" or ext2 == "REUC":
-    if ext == "REUC":
+    ext2 = ""
+    if ext == "TREE":
         r.updateSha1(ext)
+        treeextensiondata = read_extensiondata(r)
+        ext2 = r.read_without_updating_sha1(4)
     else:
-        r.updateSha1(ext2)
-    reucextensiondata = read_reuc_extensiondata(r)
-else:
-    reucextensiondata = list()
+        treeextensiondata = dict()
 
-print_header(header)
-print_indexentries(indexentries)
-print_extensiondata(treeextensiondata)
-print_reucextensiondata(reucextensiondata)
+    if ext == "REUC" or ext2 == "REUC":
+        if ext == "REUC":
+            r.updateSha1(ext)
+        else:
+            r.updateSha1(ext2)
+        reucextensiondata = read_reuc_extensiondata(r)
+    else:
+        reucextensiondata = list()
 
-sha1 = r.getSha1()
+    print_header(header)
+    print_indexentries(indexentries)
+    print_extensiondata(treeextensiondata)
+    print_reucextensiondata(reucextensiondata)
 
-if ext != "TREE" and ext != "REUC" and ext2 != "REUC":
-    sha1read = ext + r.read_without_updating_sha1(16)
-elif ext2 != "REUC" and ext == "TREE":
-    sha1read = ext2 + r.read_without_updating_sha1(16)
-else:
-    sha1read = r.read_without_updating_sha1(20)
+    sha1 = r.getSha1()
 
-print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
+    if ext != "TREE" and ext != "REUC" and ext2 != "REUC":
+        sha1read = ext + r.read_without_updating_sha1(16)
+    elif ext2 != "REUC" and ext == "TREE":
+        sha1read = ext2 + r.read_without_updating_sha1(16)
+    else:
+        sha1read = r.read_without_updating_sha1(20)
 
-print "SHA1 over filedata: " + str(sha1.hexdigest())
+    print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
 
-if sha1.hexdigest() == binascii.hexlify(sha1read):
-    fw = open(".git/index-v5", "wb")
+    print "SHA1 over filedata: " + str(sha1.hexdigest())
 
-    writev5_1header(fw, header, paths, files)
-    writev5_1fakediroffsets(fw, paths)
-    (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
-            paths)
-    fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
-    fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
-    # dirdata = writev5_1conflicteddata(fw, conflictedentries,
-    #         reucextensiondata, dirdata)
-    writev5_1diroffsets(fw, diroffsets)
-    writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
-    dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
-    writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
-            fileoffsetbeginning)
-else:
-    print "File is corrupted"
+    if sha1.hexdigest() == binascii.hexlify(sha1read):
+        fw = open(".git/index-v5", "wb")
+
+        writev5_1header(fw, header, paths, files)
+        writev5_1fakediroffsets(fw, paths)
+        (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
+                paths)
+        fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
+        fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
+        # dirdata = writev5_1conflicteddata(fw, conflictedentries,
+        #         reucextensiondata, dirdata)
+        writev5_1diroffsets(fw, diroffsets)
+        writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
+        dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
+        writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+                fileoffsetbeginning)
+    else:
+        print "File is corrupted"
+
+if __name__ == "__main__":
+    main()
