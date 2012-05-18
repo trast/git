@@ -71,6 +71,8 @@ CRC_STRUCT = struct.Struct("!i")
 
 DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIIIIIIIII")
 
+STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
+
 
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
@@ -342,7 +344,7 @@ def writev5_1filedata(fw, indexentries, dirdata):
         flags += (entry["flags"] & 0b0011000000000000) * 2
 
         # calculate crc for stat data
-        stat_crc = binascii.crc32(struct.pack("!IIIIIIII", offset,
+        stat_crc = binascii.crc32(STAT_DATA_STRUCT.pack(offset,
             entry["ctimesec"], entry["ctimensec"], entry["ino"],
             entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
 
