@@ -163,7 +163,7 @@ def read_index_entries(r, header):
     return indexentries, conflictedentries, paths, files
 
 
-def read_extensiondata(r):
+def read_tree_extensiondata(r):
     extensionsize = r.read(4)
 
     read = 0
@@ -457,36 +457,31 @@ def read_index():
     r = Reader()
     header = read_header(r)
 
-    (indexentries, conflictedentries, paths, files,
-            filedirs) = read_index_entries(r, header)
+    (indexentries, conflictedentries, paths, files) = read_index_entries(r,
+            header)
 
+    treeextensiondata = dict()
+    reucextensiondata = list()
     ext = r.read_without_updating_sha1(4)
 
-    ext2 = ""
-    if ext == "TREE":
+    if ext == "TREE" or ext == "REUC":
         r.updateSha1(ext)
-        treeextensiondata = read_extensiondata(r)
-        ext2 = r.read_without_updating_sha1(4)
-    else:
-        treeextensiondata = dict()
+        if ext == "TREE":
+            treeextensiondata = read_tree_extensiondata(r)
+        else:
+            reucextensiondata = read_reuc_extensiondata(r)
+        ext = r.read_without_updating_sha1(4)
 
-    if ext == "REUC" or ext2 == "REUC":
         if ext == "REUC":
             r.updateSha1(ext)
-        else:
-            r.updateSha1(ext2)
-        reucextensiondata = read_reuc_extensiondata(r)
-    else:
-        reucextensiondata = list()
+            reucextensiondata = read_reuc_extensiondata(r)
 
     sha1 = r.getSha1()
 
-    if ext != "TREE" and ext != "REUC" and ext2 != "REUC":
-        sha1read = ext + r.read_without_updating_sha1(16)
-    elif ext2 != "REUC" and ext == "TREE":
-        sha1read = ext2 + r.read_without_updating_sha1(16)
-    else:
+    if ext == "TREE" or ext == "REUC":
         sha1read = r.read_without_updating_sha1(20)
+    else:
+        sha1read = ext + r.read_without_updating_sha1(16)
 
     if sha1.hexdigest() != binascii.hexlify(sha1read):
         raise SHAError("SHA-1 code of the file doesn't match")
