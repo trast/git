@@ -429,36 +429,7 @@ def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
 
 
 def writev5_1conflicteddata(fw, conflictedentries, reucdata, dirdata):
-    for d in sorted(conflictedentries):
-        for f in d:
-            if d["pathname"] == "":
-                filename = d["filename"]
-            else:
-                filename = d["pathname"] + "/" + d["filename"]
-
-            dirdata[filename]["cr"] = fw.tell()
-            try:
-                dirdata[filename]["ncr"] += 1
-            except KeyError:
-                dirdata[filename]["ncr"] = 1
-
-            partialcrc = write_calc_crc(fw, d["pathname"] + d["filename"] + "\0")
-            stages = set()
-            partialcrc = write_calc_crc(fw, struct.pack("!b", 0), partialcrc)
-            for i in xrange(0, 2):
-                partialcrc = write_calc_crc(fw, struct.pack("!i", d["mode"]),
-                        partialcrc)
-                if d["mode"] != 0:
-                    stages.add(i)
-
-            for i in sorted(stages):
-                partialcrc = write_calc_crc(fw, binascii.unhexlify(d["sha1"]),
-                        partialcrc)
-
-            fw.write(struct.pack("!i", partialcrc))
-
-    return dirdata
-
+    pass
 
 def compilev5_1cachetreedata(dirdata, extensiondata):
     for entry in extensiondata.iteritems():
