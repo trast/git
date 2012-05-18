@@ -173,7 +173,6 @@ def read_index_entries(r, header):
 
 def read_tree_extensiondata(r):
     extensionsize = r.read(4)
-
     read = 0
     subtreenr = [0]
     subtree = [""]
@@ -359,6 +358,7 @@ def write_file_entry(fw, entry, offset):
 
     fw.write(CRC_STRUCT.pack(partialcrc))
 
+
 def write_file_data(fw, indexentries, dirdata):
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
@@ -506,12 +506,16 @@ def write_index_v5(header, indexentries, conflictedentries, paths, files,
     write_fake_dir_offsets(fw, paths)
     (diroffsets, dirwritedataoffsets, dirdata) = write_directories(fw,
             paths)
+
     fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
     fileoffsets, dirdata = write_file_data(fw, indexentries, dirdata)
+
     # dirdata = write_conflicted_data(fw, conflictedentries,
     #         reucextensiondata, dirdata)
+
     write_dir_offsets(fw, diroffsets)
     write_file_offsets(fw, fileoffsets, fileoffsetbeginning)
+
     dirdata = compile_cache_tree_data(dirdata, treeextensiondata)
     write_directory_data(fw, dirdata, dirwritedataoffsets,
             fileoffsetbeginning)
