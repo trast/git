@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 
-# Outputs: Calculated and read sha1 checksum in hex format
 # Usage: python git-convert-index.py
-# Read the index format with git-read-index-v5.py
-# read-index-v5 outputs the same format as git ls-files
-
 # Command line options (They all work on the v2/v3 index file)
 # The -h option shows the header of the index file
 # The -i options shows all index entries in the file. (git ls-files --debug
 #   format)
 # The -c options shows the cache-tree data (test-dump-cache-tree format
 # The -u options shows all data that was in the REUC Extension
+
+# Read the index format with git-read-index-v5.py
+# read-index-v5 outputs the same format as git ls-files
+
 
 import hashlib
 import binascii
