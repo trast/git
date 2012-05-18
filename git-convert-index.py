@@ -505,8 +505,8 @@ if sha1.hexdigest() == binascii.hexlify(sha1read):
             paths)
     fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
     fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
-    dirdata = writev5_1conflicteddata(fw, conflictedentries, reucextensiondata,
-            dirdata)
+    # dirdata = writev5_1conflicteddata(fw, conflictedentries,
+    #         reucextensiondata, dirdata)
     writev5_1diroffsets(fw, diroffsets)
     writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
     dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
