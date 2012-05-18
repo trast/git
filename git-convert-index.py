@@ -66,6 +66,8 @@ STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
 
 CRC_STRUCT = struct.Struct("!i")
 
+DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIIIIIIIII")
+
 
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
@@ -303,8 +305,8 @@ def writev5_1directories(fw, paths):
         # All this fields will be filled out when the rest of the index
         # is written
         # CRC will be calculated when data is filled in
-        fw.write(struct.pack("!HIIIIIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0))
+        fw.write(DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0))
 
     return diroffsets, dirwritedataoffsets, dirdata
 
