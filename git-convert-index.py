@@ -5,10 +5,18 @@
 # Read the index format with git-read-index-v5.py
 # read-index-v5 outputs the same format as git ls-files
 
+# Command line options (They all work on the v2/v3 index file)
+# The -h option shows the header of the index file
+# The -i options shows all index entries in the file. (git ls-files --debug
+#   format)
+# The -c options shows the cache-tree data (test-dump-cache-tree format
+# The -u options shows all data that was in the REUC Extension
+
 import hashlib
 import binascii
 import struct
 import os.path
+import sys
 from collections import defaultdict
 
 
@@ -282,18 +290,18 @@ def print_reucextensiondata(extensiondata):
                 " Objectnames 3: " + binascii.hexlify(e["obj_names2"]))
 
 
-def writev5_1header(fw, header, paths, files):
+def write_header(fw, header, paths, files):
     crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header["signature"], 5,
         len(paths), len(files), 0))
     fw.write(CRC_STRUCT.pack(crc))
 
 
-def writev5_1fakediroffsets(fw, paths):
+def write_fake_dir_offsets(fw, paths):
     for p in paths:
         fw.write(struct.pack("!I", 0))
 
 
-def writev5_1directories(fw, paths):
+def write_directories(fw, paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
     dirdata = defaultdict(dict)
@@ -318,14 +326,14 @@ def writev5_1directories(fw, paths):
     return diroffsets, dirwritedataoffsets, dirdata
 
 
-def writev5_1fakefileoffsets(fw, indexentries):
+def write_fake_file_offsets(fw, indexentries):
     beginning = fw.tell()
     for f in indexentries:
         fw.write(struct.pack("!I", 0))
     return beginning
 
 
-def writev5_1diroffsets(fw, offsets):
+def write_dir_offsets(fw, offsets):
     # Skip the header
     fw.seek(HEADER_SIZE)
     for o in offsets:
@@ -351,7 +359,7 @@ def write_file_entry(fw, entry, offset):
 
     fw.write(CRC_STRUCT.pack(partialcrc))
 
-def writev5_1filedata(fw, indexentries, dirdata):
+def write_file_data(fw, indexentries, dirdata):
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = fw.tell()
@@ -365,13 +373,13 @@ def writev5_1filedata(fw, indexentries, dirdata):
     return fileoffsets, dirdata
 
 
-def writev5_1fileoffsets(fw, foffsets, fileoffsetbeginning):
+def write_file_offsets(fw, foffsets, fileoffsetbeginning):
     fw.seek(fileoffsetbeginning)
     for f in foffsets:
         fw.write(struct.pack("!I", f))
 
 
-def writev5_1directorydata(fw, dirdata, dirwritedataoffsets, 
+def write_directory_data(fw, dirdata, dirwritedataoffsets, 
         fileoffsetbeginning):
     foffset = fileoffsetbeginning
     for d in sorted(dirdata.iteritems()):
@@ -432,10 +440,10 @@ def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
         fw.write(CRC_STRUCT.pack(partialcrc))
 
 
-def writev5_1conflicteddata(fw, conflictedentries, reucdata, dirdata):
+def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
     pass
 
-def compilev5_1cachetreedata(dirdata, extensiondata):
+def compile_cache_tree_data(dirdata, extensiondata):
     for entry in extensiondata.iteritems():
         dirdata[entry[1]["path"].strip("/")]["nentries"] = \
                 int(entry[1]["entry_count"])
@@ -490,30 +498,35 @@ def read_index():
             treeextensiondata, reucextensiondata)
 
 
-def main():
+def main(args):
     (header, indexentries, conflictedentries, paths, files, treeextensiondata,
             reucextensiondata) = read_index()
 
-    print_header(header)
-    print_indexentries(indexentries)
-    print_extensiondata(treeextensiondata)
-    print_reucextensiondata(reucextensiondata)
+    for a in args:
+        if a == "-h":
+            print_header(header)
+        if a == "-i":
+            print_indexentries(indexentries)
+        if a == "-c":
+            print_extensiondata(treeextensiondata)
+        if a == "-u":
+            print_reucextensiondata(reucextensiondata)
 
     fw = open(".git/index-v5", "wb")
 
-    writev5_1header(fw, header, paths, files)
-    writev5_1fakediroffsets(fw, paths)
-    (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
+    write_header(fw, header, paths, files)
+    write_fake_dir_offsets(fw, paths)
+    (diroffsets, dirwritedataoffsets, dirdata) = write_directories(fw,
             paths)
-    fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
-    fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
-    # dirdata = writev5_1conflicteddata(fw, conflictedentries,
+    fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
+    fileoffsets, dirdata = write_file_data(fw, indexentries, dirdata)
+    # dirdata = write_conflicted_data(fw, conflictedentries,
     #         reucextensiondata, dirdata)
-    writev5_1diroffsets(fw, diroffsets)
-    writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
-    dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
-    writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+    write_dir_offsets(fw, diroffsets)
+    write_file_offsets(fw, fileoffsets, fileoffsetbeginning)
+    dirdata = compile_cache_tree_data(dirdata, treeextensiondata)
+    write_directory_data(fw, dirdata, dirwritedataoffsets,
             fileoffsetbeginning)
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
