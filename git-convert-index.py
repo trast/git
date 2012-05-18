@@ -425,7 +425,7 @@ def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
 
         foffset += nfiles * 4
 
-        fw.write(struct.pack("!i", partialcrc))
+        fw.write(CRC_STRUCT.pack(partialcrc))
 
 
 def writev5_1conflicteddata(fw, conflictedentries, reucdata, dirdata):
