@@ -59,9 +59,12 @@ EXTENSION_FORMAT_WITHOUT_SHA = """\
 invalid %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
 
 HEADER_STRUCT = struct.Struct("!4sII")
+HEADER_V5_STRUCT = struct.Struct("!4sIIII")
 
 STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
 STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
+
+CRC_STRUCT = struct.Struct("!i")
 
 
 def write_calc_crc(fw, data, partialcrc=0):
@@ -271,14 +274,12 @@ def print_reucextensiondata(extensiondata):
 
 def writev5_1header(fw, header, paths, files):
     partialcrc = write_calc_crc(fw, header["signature"])
-    crc = write_calc_crc(fw, struct.pack("!IIII", 5, len(paths),
-        len(files), 0), partialcrc)
-    fw.write(struct.pack("!i", crc))
+    crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header["signature"], 5,
+        len(paths), len(files), 0), partialcrc)
+    fw.write(CRC_STRUCT.pack(crc))
 
 
 def writev5_1fakediroffsets(fw, paths):
-    # There is no need to calculate the crc for the fake offsets, since they
-    # will be overwritten later anyway
     for p in paths:
         fw.write(struct.pack("!I", 0))
 
