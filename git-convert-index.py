@@ -34,6 +34,9 @@ class Reader():
     def getSha1(self):
         return self._sha1
 
+
+HEADER_SIZE = 24
+
 # File formats
 HEADER_FORMAT = """\
 Signature: %(signature)s
@@ -319,7 +322,8 @@ def writev5_1fakefileoffsets(fw, indexentries):
 
 
 def writev5_1diroffsets(fw, offsets):
-    fw.seek(24)
+    # Skip the header
+    fw.seek(HEADER_SIZE)
     for o in offsets:
         fw.write(struct.pack("!I", o))
 
