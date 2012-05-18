@@ -34,6 +34,9 @@ class Reader():
     def getSha1(self):
         return self._sha1
 
+class SHAError(Exception):
+    pass
+
 
 HEADER_SIZE = 24
 
@@ -452,7 +455,7 @@ def compilev5_1cachetreedata(dirdata, extensiondata):
     return dirdata
 
 
-def main():
+def read_index():
     r = Reader()
     header = read_header(r)
 
@@ -460,7 +463,6 @@ def main():
             filedirs) = read_index_entries(r, header)
 
     ext = r.read_without_updating_sha1(4)
-    extensiondata = []
 
     ext2 = ""
     if ext == "TREE":
@@ -479,11 +481,6 @@ def main():
     else:
         reucextensiondata = list()
 
-    print_header(header)
-    print_indexentries(indexentries)
-    print_extensiondata(treeextensiondata)
-    print_reucextensiondata(reucextensiondata)
-
     sha1 = r.getSha1()
 
     if ext != "TREE" and ext != "REUC" and ext2 != "REUC":
@@ -493,28 +490,37 @@ def main():
     else:
         sha1read = r.read_without_updating_sha1(20)
 
-    print "SHA1 over the whole file: " + str(binascii.hexlify(sha1read))
+    if sha1.hexdigest() != binascii.hexlify(sha1read):
+        raise SHAError("SHA-1 code of the file doesn't match")
 
-    print "SHA1 over filedata: " + str(sha1.hexdigest())
+    return (header, indexentries, conflictedentries, paths, files, filedirs,
+            treeextensiondata, reucextensiondata)
 
-    if sha1.hexdigest() == binascii.hexlify(sha1read):
-        fw = open(".git/index-v5", "wb")
 
-        writev5_1header(fw, header, paths, files)
-        writev5_1fakediroffsets(fw, paths)
-        (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
-                paths)
-        fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
-        fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
-        # dirdata = writev5_1conflicteddata(fw, conflictedentries,
-        #         reucextensiondata, dirdata)
-        writev5_1diroffsets(fw, diroffsets)
-        writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
-        dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
-        writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
-                fileoffsetbeginning)
-    else:
-        print "File is corrupted"
+def main():
+    (header, indexentries, conflictedentries, paths, files, filedirs,
+            treeextensiondata, reucextensiondata) = read_index()
+
+    print_header(header)
+    print_indexentries(indexentries)
+    print_extensiondata(treeextensiondata)
+    print_reucextensiondata(reucextensiondata)
+
+    fw = open(".git/index-v5", "wb")
+
+    writev5_1header(fw, header, paths, files)
+    writev5_1fakediroffsets(fw, paths)
+    (diroffsets, dirwritedataoffsets, dirdata) = writev5_1directories(fw,
+            paths)
+    fileoffsetbeginning = writev5_1fakefileoffsets(fw, indexentries)
+    fileoffsets, dirdata = writev5_1filedata(fw, indexentries, dirdata)
+    # dirdata = writev5_1conflicteddata(fw, conflictedentries,
+    #         reucextensiondata, dirdata)
+    writev5_1diroffsets(fw, diroffsets)
+    writev5_1fileoffsets(fw, fileoffsets, fileoffsetbeginning)
+    dirdata = compilev5_1cachetreedata(dirdata, treeextensiondata)
+    writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+            fileoffsetbeginning)
 
 if __name__ == "__main__":
     main()
