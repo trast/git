@@ -331,28 +331,31 @@ def writev5_1diroffsets(fw, offsets):
         fw.write(struct.pack("!I", o))
 
 
+def write_file_entry(fw, entry, offset):
+    partialcrc = binascii.crc32(struct.pack("!I", offset))
+    partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
+
+    # Prepare flags
+    flags = entry["flags"] & 0b1000000000000000
+    flags += (entry["flags"] & 0b0011000000000000) * 2
+
+    # calculate crc for stat data
+    stat_crc = binascii.crc32(STAT_DATA_CRC_STRUCT.pack(offset,
+        entry["ctimesec"], entry["ctimensec"], entry["ino"],
+        entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
+
+    stat_data = FILE_DATA_STRUCT.pack(flags, entry["mode"],
+            entry["mtimesec"], entry["mtimensec"], stat_crc, entry["sha1"])
+    partialcrc = write_calc_crc(fw, stat_data, partialcrc)
+
+    fw.write(CRC_STRUCT.pack(partialcrc))
+
 def writev5_1filedata(fw, indexentries, dirdata):
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = fw.tell()
         fileoffsets.append(offset)
-        partialcrc = binascii.crc32(struct.pack("!I", fw.tell()))
-        partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
-
-        # Prepare flags
-        flags = entry["flags"] & 0b1000000000000000
-        flags += (entry["flags"] & 0b0011000000000000) * 2
-
-        # calculate crc for stat data
-        stat_crc = binascii.crc32(STAT_DATA_CRC_STRUCT.pack(offset,
-            entry["ctimesec"], entry["ctimensec"], entry["ino"],
-            entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
-
-        stat_data = FILE_DATA_STRUCT.pack(flags, entry["mode"],
-                entry["mtimesec"], entry["mtimensec"], stat_crc, entry["sha1"])
-        partialcrc = write_calc_crc(fw, stat_data, partialcrc)
-
-        fw.write(CRC_STRUCT.pack(partialcrc))
+        write_file_entry(fw, entry, offset)
         try:
             dirdata[entry["pathname"]]["nfiles"] += 1
         except KeyError:
