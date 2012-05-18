@@ -498,20 +498,8 @@ def read_index():
             treeextensiondata, reucextensiondata)
 
 
-def main(args):
-    (header, indexentries, conflictedentries, paths, files, treeextensiondata,
-            reucextensiondata) = read_index()
-
-    for a in args:
-        if a == "-h":
-            print_header(header)
-        if a == "-i":
-            print_indexentries(indexentries)
-        if a == "-c":
-            print_extensiondata(treeextensiondata)
-        if a == "-u":
-            print_reucextensiondata(reucextensiondata)
-
+def write_index_v5(header, indexentries, conflictedentries, paths, files, 
+        treeextensiondata, reucextensiondata):
     fw = open(".git/index-v5", "wb")
 
     write_header(fw, header, paths, files)
@@ -527,6 +515,24 @@ def main(args):
     dirdata = compile_cache_tree_data(dirdata, treeextensiondata)
     write_directory_data(fw, dirdata, dirwritedataoffsets,
             fileoffsetbeginning)
+
+
+def main(args):
+    (header, indexentries, conflictedentries, paths, files, treeextensiondata,
+            reucextensiondata) = read_index()
+
+    for a in args:
+        if a == "-h":
+            print_header(header)
+        if a == "-i":
+            print_indexentries(indexentries)
+        if a == "-c":
+            print_extensiondata(treeextensiondata)
+        if a == "-u":
+            print_reucextensiondata(reucextensiondata)
+
+    write_index_v5(header, indexentries, conflictedentries, paths, files,
+            treeextensiondata, reucextensiondata)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
