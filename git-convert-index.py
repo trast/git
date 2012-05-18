@@ -69,9 +69,11 @@ STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
 
 CRC_STRUCT = struct.Struct("!i")
 
-DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIIIIIIIII")
+DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
 
 STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
+
+FILE_DATA_STRUCT = struct.Struct("!HHIIi 20s")
 
 
 def write_calc_crc(fw, data, partialcrc=0):
@@ -309,8 +311,8 @@ def writev5_1directories(fw, paths):
         # All this fields will be filled out when the rest of the index
         # is written
         # CRC will be calculated when data is filled in
-        fw.write(DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0))
+        fw.write(DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0, 20 * '\0'))
+        fw.write(CRC_STRUCT.pack(0))
 
     return diroffsets, dirwritedataoffsets, dirdata
 
@@ -338,21 +340,19 @@ def writev5_1filedata(fw, indexentries, dirdata):
         partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
 
         # Prepare flags
-        # TODO: Consider extended flags
         flags = entry["flags"] & 0b1000000000000000
         flags += (entry["flags"] & 0b0011000000000000) * 2
 
         # calculate crc for stat data
-        stat_crc = binascii.crc32(STAT_DATA_STRUCT.pack(offset,
+        stat_crc = binascii.crc32(STAT_DATA_CRC_STRUCT.pack(offset,
             entry["ctimesec"], entry["ctimensec"], entry["ino"],
             entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
 
-        partialcrc = write_calc_crc(fw, struct.pack("!HHIIi", flags, entry["mode"],
-            entry["mtimesec"], entry["mtimensec"], stat_crc), partialcrc)
+        stat_data = FILE_DATA_STRUCT.pack(flags, entry["mode"],
+                entry["mtimesec"], entry["mtimensec"], stat_crc, entry["sha1"])
+        partialcrc = write_calc_crc(fw, stat_data, partialcrc)
 
-        partialcrc = write_calc_crc(fw, entry["sha1"], partialcrc)
-
-        fw.write(struct.pack("!i", partialcrc))
+        fw.write(CRC_STRUCT.pack(partialcrc))
         try:
             dirdata[entry["pathname"]]["nfiles"] += 1
         except KeyError:
@@ -367,7 +367,7 @@ def writev5_1fileoffsets(fw, foffsets, fileoffsetbeginning):
         fw.write(struct.pack("!I", f))
 
 
-def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
+def writev5_1directorydata(fw, dirdata, dirwritedataoffsets, 
         fileoffsetbeginning):
     foffset = fileoffsetbeginning
     for d in sorted(dirdata.iteritems()):
@@ -375,10 +375,26 @@ def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
             fw.seek(dirwritedataoffsets[d[0]])
         except KeyError:
             continue
+
         if d[0] == "":
             partialcrc = binascii.crc32(d[0] + "\0")
         else:
             partialcrc = binascii.crc32(d[0] + "/\0")
+
+        try:
+            flags = d[1]["flags"]
+        except KeyError:
+            flags = 0
+
+        try:
+            cr = d[1]["cr"]
+        except KeyError:
+            cr = 0
+
+        try:
+            ncr = d[1]["ncr"]
+        except KeyError:
+            ncr = 0
 
         try:
             nsubtrees = d[1]["nsubtrees"]
@@ -391,50 +407,23 @@ def writev5_1directorydata(fw, dirdata, dirwritedataoffsets,
             nfiles = 0
 
         try:
-            partialcrc = write_calc_crc(fw, struct.pack("!H", d[1]["flags"]),
-                    partialcrc)
+            nentries = d[1]["nentries"]
         except KeyError:
-            partialcrc = write_calc_crc(fw, struct.pack("!H", 0),
-                    partialcrc)
-
-        if nfiles == -1 or nfiles == 0:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
-                    partialcrc)
-        else:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", foffset),
-                    partialcrc)
-            foffset += (nfiles) * 4
+            nentries = 0
 
         try:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", d[1]["cr"]),
-                    partialcrc)
+            objname = binascii.unhexlify(d[1]["objname"])
         except KeyError:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
-                    partialcrc)
+            objname = 20 * '\0'
 
-        try:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", d[1]["ncr"]),
-                    partialcrc)
-        except KeyError:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
-                    partialcrc)
+        if nfiles == -1:
+            nfiles = 0
 
-        partialcrc = write_calc_crc(fw, struct.pack("!I", nsubtrees), partialcrc)
-        partialcrc = write_calc_crc(fw, struct.pack("!I", nfiles), partialcrc)
 
-        try:
-            partialcrc = write_calc_crc(fw, struct.pack("!i", d[1]["nentries"]),
-                    partialcrc)
-        except KeyError:
-            partialcrc = write_calc_crc(fw, struct.pack("!I", 0),
-                    partialcrc)
+        partialcrc = write_calc_crc(fw, DIRECTORY_DATA_STRUCT.pack(flags,
+            foffset, cr, ncr, nsubtrees, nfiles, nentries, objname), partialcrc)
 
-        try:
-            partialcrc = write_calc_crc(fw, binascii.unhexlify(d[1]["objname"]),
-                    partialcrc)
-        except KeyError:
-            partialcrc = write_calc_crc(fw, struct.pack("!IIIII", 0, 0, 0, 0, 0),
-                    partialcrc)
+        foffset += nfiles * 4
 
         fw.write(struct.pack("!i", partialcrc))
 
