@@ -280,9 +280,8 @@ def print_reucextensiondata(extensiondata):
 
 
 def writev5_1header(fw, header, paths, files):
-    partialcrc = write_calc_crc(fw, header["signature"])
     crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header["signature"], 5,
-        len(paths), len(files), 0), partialcrc)
+        len(paths), len(files), 0))
     fw.write(CRC_STRUCT.pack(crc))
 
 
