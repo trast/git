@@ -142,14 +142,12 @@ def read_index_entries(r, header):
     conflictedentries = defaultdict(list)
     paths = set()
     files = list()
-    filedirs = defaultdict(list)
     # Read index entries
     for i in xrange(header["nrofentries"]):
         entry = read_entry(r, header)
 
         paths.add(entry["pathname"])
         files.append(entry["filename"])
-        filedirs[entry["pathname"]].append(entry["filename"])
 
         stage = (entry['flags'] & 0b0011000000000000) / 0b001000000000000
 
@@ -162,7 +160,7 @@ def read_index_entries(r, header):
                 indexentries.append(entry)
             conflictedentries[entry["pathname"]].append(entry)
 
-    return indexentries, conflictedentries, paths, files, filedirs
+    return indexentries, conflictedentries, paths, files
 
 
 def read_extensiondata(r):
@@ -493,13 +491,13 @@ def read_index():
     if sha1.hexdigest() != binascii.hexlify(sha1read):
         raise SHAError("SHA-1 code of the file doesn't match")
 
-    return (header, indexentries, conflictedentries, paths, files, filedirs,
+    return (header, indexentries, conflictedentries, paths, files,
             treeextensiondata, reucextensiondata)
 
 
 def main():
-    (header, indexentries, conflictedentries, paths, files, filedirs,
-            treeextensiondata, reucextensiondata) = read_index()
+    (header, indexentries, conflictedentries, paths, files, treeextensiondata,
+            reucextensiondata) = read_index()
 
     print_header(header)
     print_indexentries(indexentries)
