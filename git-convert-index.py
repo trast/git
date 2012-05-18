@@ -400,28 +400,22 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
 
         try:
             cr = d[1]["cr"]
-        except KeyError:
-            cr = 0
-
-        try:
             ncr = d[1]["ncr"]
         except KeyError:
+            cr = 0
             ncr = 0
 
         try:
             nsubtrees = d[1]["nsubtrees"]
+            nentries = d[1]["nentries"]
         except KeyError:
             nsubtrees = 0
+            nentries = 0
 
         try:
             nfiles = d[1]["nfiles"]
         except KeyError:
             nfiles = 0
-
-        try:
-            nentries = d[1]["nentries"]
-        except KeyError:
-            nentries = 0
 
         try:
             objname = binascii.unhexlify(d[1]["objname"])
@@ -447,17 +441,15 @@ def compile_cache_tree_data(dirdata, extensiondata):
     for entry in extensiondata.iteritems():
         dirdata[entry[1]["path"].strip("/")]["nentries"] = \
                 int(entry[1]["entry_count"])
+
+        dirdata[entry[1]["path"].strip("/")]["nsubtrees"] = \
+                entry[1]["subtreenr"]
+
         try:
             dirdata[entry[1]["path"].strip("/")]["objname"] = entry[1]["sha1"]
         except:
-            continue  # Cache tree invalid
-
-        try:
-            dirdata[entry[1]["path"].strip("/")]["nsubtrees"] = \
-                    entry[1]["subtreenr"]
-        except KeyError:
             pass
-
+        
     return dirdata
 
 
