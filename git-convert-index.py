@@ -103,7 +103,7 @@ def write_calc_crc(fw, data, partialcrc=0):
     return crc
 
 
-def calculate_crc(data, partialcrc):
+def calculate_crc(data, partialcrc=0):
     return binascii.crc32(data, partialcrc) & 0xffffffff
 
 
@@ -373,7 +373,7 @@ def write_file_entry(fw, entry, offset):
 
 
 def write_file_data(fw, indexentries):
-    dirdata = list()
+    dirdata = defaultdict(dict)
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = fw.tell()
