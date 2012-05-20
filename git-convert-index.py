@@ -75,6 +75,8 @@ invalid %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
 HEADER_STRUCT = struct.Struct("!4sII")
 HEADER_V5_STRUCT = struct.Struct("!4sIIII")
 
+SIZE_STRUCT = struct.Struct("!I")
+
 STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
 STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
 
@@ -85,6 +87,8 @@ DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
 STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
 
 FILE_DATA_STRUCT = struct.Struct("!HHIIi 20s")
+
+OFFSET_STRUCT = struct.Struct("!I")
 
 
 def write_calc_crc(fw, data, partialcrc=0):
@@ -178,7 +182,7 @@ def read_tree_extensiondata(r):
     subtree = [""]
     listsize = 0
     extensiondata = dict()
-    while read < int(struct.unpack("!I", extensionsize)[0]):
+    while read < int(SIZE_STRUCT.unpack(extensionsize)[0]):
         (path, readbytes) = read_name(r, '\0')
         read += readbytes
 
@@ -252,7 +256,7 @@ def read_reuc_extensiondata(r):
 
     read = 0
     extensiondata = defaultdict(list)
-    while read < int(struct.unpack("!I", extensionsize)[0]):
+    while read < int(SIZE_STRUCT.unpack(extensionsize)[0]):
         (entry, readbytes) = read_reuc_extension_entry(r)
         read += readbytes
         extensiondata["/".join(entry["path"].split("/"))[:-1]].append(entry)
@@ -297,7 +301,7 @@ def write_header(fw, header, paths, files):
 
 def write_fake_dir_offsets(fw, paths):
     for p in paths:
-        fw.write(struct.pack("!I", 0))
+        fw.write(OFFSET_STRUCT.pack(0))
 
 
 def write_directories(fw, paths):
@@ -328,7 +332,7 @@ def write_directories(fw, paths):
 def write_fake_file_offsets(fw, indexentries):
     beginning = fw.tell()
     for f in indexentries:
-        fw.write(struct.pack("!I", 0))
+        fw.write(OFFSET_STRUCT.pack(0))
     return beginning
 
 
@@ -336,11 +340,11 @@ def write_dir_offsets(fw, offsets):
     # Skip the header
     fw.seek(HEADER_SIZE)
     for o in offsets:
-        fw.write(struct.pack("!I", o))
+        fw.write(OFFSET_STRUCT.pack(o))
 
 
 def write_file_entry(fw, entry, offset):
-    partialcrc = binascii.crc32(struct.pack("!I", offset))
+    partialcrc = binascii.crc32(OFFSET_STRUCT.pack(offset))
     partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
 
     # Prepare flags
@@ -376,7 +380,7 @@ def write_file_data(fw, indexentries, dirdata):
 def write_file_offsets(fw, foffsets, fileoffsetbeginning):
     fw.seek(fileoffsetbeginning)
     for f in foffsets:
-        fw.write(struct.pack("!I", f))
+        fw.write(OFFSET_STRUCT.pack(f))
 
 
 def write_directory_data(fw, dirdata, dirwritedataoffsets,
