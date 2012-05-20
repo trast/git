@@ -307,32 +307,43 @@ def read_reuc_extensiondata(r):
 
 
 def print_header(header):
-    print HEADER_FORMAT % header
+    print HEADER_FORMAT % {"signature": header.signature,
+            "version": header.version, "nrofentries": header.nrofentries}
 
 
 def print_indexentries(indexentries):
     for entry in indexentries:
-        if entry["pathname"] != "":
-            print entry["pathname"] + "/" + entry["filename"]
+        if entry.pathname != "":
+            print entry.pathname + "/" + entry.filename
         else:
-            print entry["filename"]
-        print ENTRIES_FORMAT % entry + "%x" % entry["flags"]
+            print entry.filename
+        print ENTRIES_FORMAT % {"ctimesec": entry.ctimesec,
+                "ctimensec": entry.ctimensec, "mtimesec": entry.mtimesec,
+                "mtimensec": entry.mtimensec, "dev": entry.dev,
+                "ino": entry.ino, "uid": entry.uid, "gid": entry.gid,
+                "filesize": entry.filesize} + "%x" % entry.flags
 
 
 def print_extensiondata(extensiondata):
     for entry in sorted(extensiondata.itervalues()):
+        dictentry = {"sha1": entry.sha1, "path": entry.path,
+                "entry_count": entry.entry_count, "subtrees": entry.subtrees}
         try:
-            print EXTENSION_FORMAT % entry
+            print EXTENSION_FORMAT % dictentry
         except KeyError:
-            print EXTENSION_FORMAT_WITHOUT_SHA % entry
+            print EXTENSION_FORMAT_WITHOUT_SHA % dictentry
 
 
 def print_reucextensiondata(extensiondata):
-    for e in extensiondata:
-        print REUCEXTENSION_FORMAT % e
-        print ("Objectnames 1: " + binascii.hexlify(e["obj_names0"]) +
-                " Objectnames 2: " + binascii.hexlify(e["obj_names1"]) +
-                " Objectnames 3: " + binascii.hexlify(e["obj_names2"]))
+    if extensiondata:
+        for (path, data) in extensiondata.iteritems():
+            for e in data:
+                print REUCEXTENSION_FORMAT % {"path": e.path,
+                        "entry_mode0": e.entry_mode0, "entry_mode1":
+                        e.entry_mode1, "entry_mode2": e.entry_mode2}
+                print ("Objectnames 1: " + binascii.hexlify(e.obj_names0) +
+                        " Objectnames 2: " + binascii.hexlify(e.obj_names1) +
+                        " Objectnames 3: " + binascii.hexlify(e.obj_names2))
 
 
 def write_header(fw, header, paths, files):
