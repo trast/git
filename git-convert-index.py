@@ -139,6 +139,18 @@ class ReucExtensionData:
         self.obj_names2  = obj_names2
 
 
+class DirEntry:
+    def __init__(self, nfiles = 0, flags = 0, cr = 0, ncr = 0, nsubtrees = 0,
+            nentries = 0, objname = 20 * '\0'):
+        self.nfiles = nfiles
+        self.flags = flags
+        self.cr = cr
+        self.ncr = ncr
+        self.nsubtrees = nsubtrees
+        self.nentries = nentries
+        self.objname = objname
+
+
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
     crc = calculate_crc(data, partialcrc)
@@ -416,16 +428,16 @@ def write_file_entry(fw, entry, offset):
 
 
 def write_file_data(fw, indexentries):
-    dirdata = defaultdict(dict)
+    dirdata = dict()
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k.pathname):
         offset = fw.tell()
         fileoffsets.append(offset)
         write_file_entry(fw, entry, offset)
-        try:
-            dirdata[entry.pathname]["nfiles"] += 1
-        except KeyError:
-            dirdata[entry.pathname]["nfiles"] = 1
+        if entry.pathname not in dirdata:
+            dirdata[entry.pathname] = DirEntry()
+
+        dirdata[entry.pathname].nfiles += 1
 
     return fileoffsets, dirdata
 
@@ -450,42 +462,12 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
         else:
             partialcrc = calculate_crc(pathname + "/\0")
 
-        try:
-            flags = entry["flags"]
-        except KeyError:
-            flags = 0
 
-        try:
-            cr = entry["cr"]
-            ncr = entry["ncr"]
-        except KeyError:
-            cr = 0
-            ncr = 0
+        partialcrc = write_calc_crc(fw, DIRECTORY_DATA_STRUCT.pack(entry.flags,
+            foffset, entry.cr, entry.ncr, entry.nsubtrees, entry.nfiles,
+            entry.nentries, entry.objname), partialcrc)
 
-        try:
-            nsubtrees = entry["nsubtrees"]
-            nentries = entry["nentries"]
-        except KeyError:
-            nsubtrees = 0
-            nentries = 0
-
-        try:
-            nfiles = entry["nfiles"]
-        except KeyError:
-            nfiles = 0
-
-        try:
-            objname = binascii.unhexlify(entry["objname"])
-        except KeyError:
-            objname = 20 * '\0'
-
-        if nfiles == -1:
-            nfiles = 0
-
-        partialcrc = write_calc_crc(fw, DIRECTORY_DATA_STRUCT.pack(flags,
-            foffset, cr, ncr, nsubtrees, nfiles, nentries, objname), partialcrc)
-
-        foffset += nfiles * 4
+        foffset += entry.nfiles * 4
 
         fw.write(CRC_STRUCT.pack(partialcrc))
 
@@ -495,14 +477,14 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
 
 def compile_cache_tree_data(dirdata, extensiondata):
     for (path, entry) in extensiondata.iteritems():
-        dirdata[path.strip("/")]["nentries"] = \
+        dirdata[path.strip("/")].nentries = \
                 int(entry.entry_count)
 
-        dirdata[path.strip("/")]["nsubtrees"] = \
+        dirdata[path.strip("/")].nsubtrees = \
                 int(entry.subtrees)
 
         if entry.sha1 != "invalid":
-            dirdata[path.strip("/")]["objname"] = entry.sha1
+            dirdata[path.strip("/")].objname = entry.sha1
 
     return dirdata
 
