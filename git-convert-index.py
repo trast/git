@@ -307,7 +307,6 @@ def write_fake_dir_offsets(fw, paths):
 def write_directories(fw, paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
-    dirdata = defaultdict(dict)
     for p in sorted(paths):
         diroffsets.append(fw.tell())
 
@@ -326,7 +325,7 @@ def write_directories(fw, paths):
         fw.write(DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0, 20 * '\0'))
         fw.write(CRC_STRUCT.pack(0))
 
-    return diroffsets, dirwritedataoffsets, dirdata
+    return diroffsets, dirwritedataoffsets
 
 
 def write_fake_file_offsets(fw, indexentries):
@@ -500,7 +499,7 @@ def write_index_v5(header, indexentries, conflictedentries, paths, files,
 
     write_header(fw, header, paths, files)
     write_fake_dir_offsets(fw, paths)
-    (diroffsets, dirwritedataoffsets, dirdata) = write_directories(fw,
+    (diroffsets, dirwritedataoffsets) = write_directories(fw,
             paths)
 
     fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
