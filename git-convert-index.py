@@ -17,6 +17,7 @@ import binascii
 import struct
 import os.path
 import sys
+import python.lib.indexlib as indexlib
 from collections import defaultdict
 
 
@@ -47,30 +48,6 @@ class SHAError(Exception):
 
 
 HEADER_SIZE = 24
-
-# File formats
-HEADER_FORMAT = """\
-Signature: %(signature)s
-Version: %(version)s
-Number of entries: %(nrofentries)s"""
-
-ENTRIES_FORMAT = """\
-ctime: %(ctimesec)s:%(ctimensec)s
-mtime: %(mtimesec)s:%(mtimensec)s
-dev: %(dev)s\tino: %(ino)s
-uid: %(uid)s\tgid: %(gid)s
-size: %(filesize)s\tflags: """
-
-EXTENSION_FORMAT = """\
-%(sha1)s %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
-
-REUCEXTENSION_FORMAT = """\
-Path: %(path)s
-Entrymode 1: %(entry_mode0)s Entrymode 2: %(entry_mode1)s Entrymode 3:\
-        %(entry_mode2)s"""
-
-EXTENSION_FORMAT_WITHOUT_SHA = """\
-invalid %(path)s (%(entry_count)s entries, %(subtrees)s subtrees)"""
 
 HEADER_STRUCT = struct.Struct("!4sII")
 HEADER_V5_STRUCT = struct.Struct("!4sIIII")
@@ -319,7 +296,7 @@ def read_reuc_extensiondata(r):
 
 
 def print_header(header):
-    print HEADER_FORMAT % {"signature": header.signature,
+    print indexlib.HEADER_FORMAT % {"signature": header.signature,
             "version": header.version, "nrofentries": header.nrofentries}
 
 
@@ -329,7 +306,7 @@ def print_indexentries(indexentries):
             print entry.pathname + "/" + entry.filename
         else:
             print entry.filename
-        print ENTRIES_FORMAT % {"ctimesec": entry.ctimesec,
+        print indexlib.ENTRIES_FORMAT % {"ctimesec": entry.ctimesec,
                 "ctimensec": entry.ctimensec, "mtimesec": entry.mtimesec,
                 "mtimensec": entry.mtimensec, "dev": entry.dev,
                 "ino": entry.ino, "uid": entry.uid, "gid": entry.gid,
@@ -341,16 +318,16 @@ def print_extensiondata(extensiondata):
         dictentry = {"sha1": entry.sha1, "path": entry.path,
                 "entry_count": entry.entry_count, "subtrees": entry.subtrees}
         try:
-            print EXTENSION_FORMAT % dictentry
+            print indexlib.EXTENSION_FORMAT % dictentry
         except KeyError:
-            print EXTENSION_FORMAT_WITHOUT_SHA % dictentry
+            print indexlib.EXTENSION_FORMAT_WITHOUT_SHA % dictentry
 
 
 def print_reucextensiondata(extensiondata):
     if extensiondata:
         for (path, data) in extensiondata.iteritems():
             for e in data:
-                print REUCEXTENSION_FORMAT % {"path": e.path,
+                print indexlib.REUCEXTENSION_FORMAT % {"path": e.path,
                         "entry_mode0": e.entry_mode0, "entry_mode1":
                         e.entry_mode1, "entry_mode2": e.entry_mode2}
                 print ("Objectnames 1: " + binascii.hexlify(e.obj_names0) +
