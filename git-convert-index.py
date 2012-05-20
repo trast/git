@@ -127,6 +127,18 @@ class TreeExtensionData:
         self.sha1        = sha1
 
 
+class ReucExtensionData:
+    def __init__(self, path, entry_mode0, entry_mode1, entry_mode2, obj_names0,
+            obj_names1, obj_names2):
+        self.path        = path
+        self.entry_mode0 = entry_mode0
+        self.entry_mode1 = entry_mode1
+        self.entry_mode2 = entry_mode2
+        self.obj_names0  = obj_names0
+        self.obj_names1  = obj_names1
+        self.obj_names2  = obj_names2
+
+
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
     crc = calculate_crc(data, partialcrc)
@@ -277,9 +289,8 @@ def read_reuc_extension_entry(r):
         else:
             obj_names.append("")
 
-    return dict(path=path, entry_mode0=entry_mode[0], entry_mode1=entry_mode[1],
-            entry_mode2=entry_mode[2], obj_names0=obj_names[0],
-            obj_names1=obj_names[1], obj_names2=obj_names[2]), read
+    return ReucExtensionData(path, entry_mode[0], entry_mode[1],
+            entry_mode[2], obj_names[0], obj_names[1], obj_names[2]), read
 
 
 def read_reuc_extensiondata(r):
@@ -290,7 +301,7 @@ def read_reuc_extensiondata(r):
     while read < int(SIZE_STRUCT.unpack(extensionsize)[0]):
         (entry, readbytes) = read_reuc_extension_entry(r)
         read += readbytes
-        extensiondata["/".join(entry["path"].split("/"))[:-1]].append(entry)
+        extensiondata["/".join(entry.path.split("/"))[:-1]].append(entry)
 
     return extensiondata
 
