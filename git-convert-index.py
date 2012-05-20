@@ -80,7 +80,7 @@ SIZE_STRUCT = struct.Struct("!I")
 STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
 STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
 
-CRC_STRUCT = struct.Struct("!i")
+CRC_STRUCT = struct.Struct("!I")
 
 DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
 
@@ -93,8 +93,12 @@ OFFSET_STRUCT = struct.Struct("!I")
 
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
-    crc = binascii.crc32(data, partialcrc)
+    crc = calculate_crc(data, partialcrc)
     return crc
+
+
+def calculate_crc(data, partialcrc):
+    return binascii.crc32(data, partialcrc) & 0xffffffff
 
 
 def read_name(r, delimiter):
@@ -343,7 +347,7 @@ def write_dir_offsets(fw, offsets):
 
 
 def write_file_entry(fw, entry, offset):
-    partialcrc = binascii.crc32(OFFSET_STRUCT.pack(offset))
+    partialcrc = calculate_crc(OFFSET_STRUCT.pack(offset))
     partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
 
     # Prepare flags
@@ -351,7 +355,7 @@ def write_file_entry(fw, entry, offset):
     flags += (entry["flags"] & 0b0011000000000000) * 2
 
     # calculate crc for stat data
-    stat_crc = binascii.crc32(STAT_DATA_CRC_STRUCT.pack(offset,
+    stat_crc = calculate_crc(STAT_DATA_CRC_STRUCT.pack(offset,
         entry["ctimesec"], entry["ctimensec"], entry["ino"],
         entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
 
@@ -392,9 +396,9 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
             continue
 
         if pathname == "":
-            partialcrc = binascii.crc32(pathname + "\0")
+            partialcrc = calculate_crc(pathname + "\0")
         else:
-            partialcrc = binascii.crc32(pathname + "/\0")
+            partialcrc = calculate_crc(pathname + "/\0")
 
         try:
             flags = entry["flags"]
