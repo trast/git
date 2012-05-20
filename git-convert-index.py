@@ -86,7 +86,7 @@ DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
 
 STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
 
-FILE_DATA_STRUCT = struct.Struct("!HHIIi 20s")
+FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
 OFFSET_STRUCT = struct.Struct("!I")
 
