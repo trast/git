@@ -78,7 +78,8 @@ HEADER_V5_STRUCT = struct.Struct("!4sIIII")
 SIZE_STRUCT = struct.Struct("!I")
 
 STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
-STAT_DATA_STRUCT_EXTENDED_FLAGS = struct.Struct("!IIIIIIIIII 20shh")
+
+XTFLAGS_STRUCT = struct.Struct("!h")
 
 CRC_STRUCT = struct.Struct("!I")
 
@@ -90,11 +91,32 @@ FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
 OFFSET_STRUCT = struct.Struct("!I")
 
-class Header():
+class Header:
     def __init__(self, signature, version, nrofentries):
         self.signature = signature
         self.version = version
         self.nrofentries = nrofentries
+
+
+class IndexEntry:
+    def __init__(self, ctimesec, ctimensec, mtimesec, mtimensec, dev, ino,
+            mode, uid, gid, filesize, sha1, flags, pathname, filename,
+            xtflags = None):
+        self.ctimesec  = ctimesec
+        self.ctimensec = ctimensec
+        self.mtimesec  = mtimesec
+        self.mtimensec = mtimensec
+        self.dev       = dev
+        self.ino       = ino
+        self.mode      = mode
+        self.uid       = uid
+        self.gid       = gid
+        self.filesize  = filesize
+        self.sha1      = sha1
+        self.flags     = flags
+        self.pathname  = pathname
+        self.filename  = filename
+        self.xtflags   = xtflags
 
 
 def write_calc_crc(fw, data, partialcrc=0):
@@ -125,28 +147,23 @@ def read_header(r):
 
 
 def read_entry(r, header):
+    (ctimesec, ctimensec, mtimesec, mtimensec, dev, ino, mode, uid, gid,
+            filesize, sha1, flags) = STAT_DATA_STRUCT.unpack(
+                    r.read(STAT_DATA_STRUCT.size))
+
     if header.version == 3:
-        entry = STAT_DATA_STRUCT_EXTENDED_FLAGS.unpack(
-                r.read(STAT_DATA_STRUCT_EXTENDED_FLAGS.size))
-    else:
-        entry = STAT_DATA_STRUCT.unpack(
-                r.read(STAT_DATA_STRUCT.size))
+        xtflags = XTFLAGS_STRUCT.unpack(r.read(XTFLAGS_STRUCT.size))
 
     (name, readbytes) = read_name(r, '\0')
 
     pathname = os.path.dirname(name)
     filename = os.path.basename(name)
 
-    entry = entry + (pathname, filename)           # Filename
+    entry = IndexEntry(ctimesec, ctimensec, mtimesec, mtimensec, dev, ino,
+            mode, uid, gid, filesize, sha1, flags, pathname, filename)
 
     if (header.version == 3):
-        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec',
-            'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
-            'sha1', 'flags', 'xtflags', 'pathname', 'filename'), entry))
-    else:
-        dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec',
-            'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
-            'sha1', 'flags', 'pathname', 'filename'), entry))
+        entry.xtflags = xtflags
 
     if header.version == 2:
         j = 8 - (readbytes + 5) % 8
@@ -156,7 +173,7 @@ def read_entry(r, header):
     # Just throw the padding away.
     r.read(j - 1)
 
-    return dictentry
+    return entry
 
 
 def read_index_entries(r, header):
@@ -168,10 +185,10 @@ def read_index_entries(r, header):
     for i in xrange(header.nrofentries):
         entry = read_entry(r, header)
 
-        paths.add(entry["pathname"])
-        files.append(entry["filename"])
+        paths.add(entry.pathname)
+        files.append(entry.filename)
 
-        stage = (entry['flags'] & 0b0011000000000000) / 0b001000000000000
+        stage = (entry.flags & 0b0011000000000000) / 0b001000000000000
 
         if stage == 0:      # Not conflicted
             indexentries.append(entry)
@@ -180,7 +197,7 @@ def read_index_entries(r, header):
                 # Write the stage 1 entry to the main index, to avoid
                 # rewriting the whole index once the conflict is resolved
                 indexentries.append(entry)
-            conflictedentries[entry["pathname"]].append(entry)
+            conflictedentries[entry.pathname].append(entry)
 
     return indexentries, conflictedentries, paths, files
 
@@ -354,19 +371,19 @@ def write_dir_offsets(fw, offsets):
 
 def write_file_entry(fw, entry, offset):
     partialcrc = calculate_crc(OFFSET_STRUCT.pack(offset))
-    partialcrc = write_calc_crc(fw, entry["filename"] + "\0", partialcrc)
+    partialcrc = write_calc_crc(fw, entry.filename + "\0", partialcrc)
 
     # Prepare flags
-    flags = entry["flags"] & 0b1000000000000000
-    flags += (entry["flags"] & 0b0011000000000000) * 2
+    flags = entry.flags & 0b1000000000000000
+    flags += (entry.flags & 0b0011000000000000) * 2
 
     # calculate crc for stat data
     stat_crc = calculate_crc(STAT_DATA_CRC_STRUCT.pack(offset,
-        entry["ctimesec"], entry["ctimensec"], entry["ino"],
-        entry["filesize"], entry["dev"], entry["uid"], entry["gid"]))
+        entry.ctimesec, entry.ctimensec, entry.ino,
+        entry.filesize, entry.dev, entry.uid, entry.gid))
 
-    stat_data = FILE_DATA_STRUCT.pack(flags, entry["mode"],
-            entry["mtimesec"], entry["mtimensec"], stat_crc, entry["sha1"])
+    stat_data = FILE_DATA_STRUCT.pack(flags, entry.mode,
+            entry.mtimesec, entry.mtimensec, stat_crc, entry.sha1)
     partialcrc = write_calc_crc(fw, stat_data, partialcrc)
 
     fw.write(CRC_STRUCT.pack(partialcrc))
@@ -375,14 +392,14 @@ def write_file_entry(fw, entry, offset):
 def write_file_data(fw, indexentries):
     dirdata = defaultdict(dict)
     fileoffsets = list()
-    for entry in sorted(indexentries, key=lambda k: k['pathname']):
+    for entry in sorted(indexentries, key=lambda k: k.pathname):
         offset = fw.tell()
         fileoffsets.append(offset)
         write_file_entry(fw, entry, offset)
         try:
-            dirdata[entry["pathname"]]["nfiles"] += 1
+            dirdata[entry.pathname]["nfiles"] += 1
         except KeyError:
-            dirdata[entry["pathname"]]["nfiles"] = 1
+            dirdata[entry.pathname]["nfiles"] = 1
 
     return fileoffsets, dirdata
 
