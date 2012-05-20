@@ -119,6 +119,14 @@ class IndexEntry:
         self.xtflags   = xtflags
 
 
+class TreeExtensionData:
+    def __init__(self, path, entry_count, subtrees, sha1 = "invalid"):
+        self.path        = path
+        self.entry_count = entry_count
+        self.subtrees    = subtrees
+        self.sha1        = sha1
+
+
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
     crc = calculate_crc(data, partialcrc)
@@ -242,12 +250,8 @@ def read_tree_extensiondata(r):
         else:
             sha1 = "invalid"
 
-        if sha1 == "invalid":
-            extensiondata[fpath] = dict(path=fpath,
-                entry_count=entry_count, subtrees=subtrees)
-        else:
-            extensiondata[fpath] = dict(path=fpath,
-                entry_count=entry_count, subtrees=subtrees, sha1=sha1)
+        extensiondata[fpath] = TreeExtensionData(fpath, entry_count, subtrees,
+                sha1)
 
     return extensiondata
 
@@ -456,7 +460,6 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
         if nfiles == -1:
             nfiles = 0
 
-
         partialcrc = write_calc_crc(fw, DIRECTORY_DATA_STRUCT.pack(flags,
             foffset, cr, ncr, nsubtrees, nfiles, nentries, objname), partialcrc)
 
@@ -471,15 +474,13 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
 def compile_cache_tree_data(dirdata, extensiondata):
     for (path, entry) in extensiondata.iteritems():
         dirdata[path.strip("/")]["nentries"] = \
-                int(entry["entry_count"])
+                int(entry.entry_count)
 
         dirdata[path.strip("/")]["nsubtrees"] = \
-                entry["subtreenr"]
+                int(entry.subtrees)
 
-        try:
-            dirdata[path.strip("/")]["objname"] = entry["sha1"]
-        except:
-            pass
+        if entry.sha1 != "invalid":
+            dirdata[path.strip("/")]["objname"] = entry.sha1
 
     return dirdata
 
