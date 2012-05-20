@@ -90,6 +90,12 @@ FILE_DATA_STRUCT = struct.Struct("!HHIIi 20s")
 
 OFFSET_STRUCT = struct.Struct("!I")
 
+class Header():
+    def __init__(self, signature, version, nrofentries):
+        self.signature = signature
+        self.version = version
+        self.nrofentries = nrofentries
+
 
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
@@ -115,11 +121,11 @@ def read_name(r, delimiter):
 def read_header(r):
     (signature, version, nrofentries) = HEADER_STRUCT.unpack(
             r.read(HEADER_STRUCT.size))
-    return dict(signature=signature, version=version, nrofentries=nrofentries)
+    return Header(signature, version, nrofentries)
 
 
 def read_entry(r, header):
-    if header["version"] == 3:
+    if header.version == 3:
         entry = STAT_DATA_STRUCT_EXTENDED_FLAGS.unpack(
                 r.read(STAT_DATA_STRUCT_EXTENDED_FLAGS.size))
     else:
@@ -133,7 +139,7 @@ def read_entry(r, header):
 
     entry = entry + (pathname, filename)           # Filename
 
-    if (header["version"] == 3):
+    if (header.version == 3):
         dictentry = dict(zip(('ctimesec', 'ctimensec', 'mtimesec',
             'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
             'sha1', 'flags', 'xtflags', 'pathname', 'filename'), entry))
@@ -142,7 +148,7 @@ def read_entry(r, header):
             'mtimensec', 'dev', 'ino', 'mode', 'uid', 'gid', 'filesize',
             'sha1', 'flags', 'pathname', 'filename'), entry))
 
-    if header["version"] == 2:
+    if header.version == 2:
         j = 8 - (readbytes + 5) % 8
     else:
         j = 8 - (readbytes + 1) % 8
@@ -159,7 +165,7 @@ def read_index_entries(r, header):
     paths = set()
     files = list()
     # Read index entries
-    for i in xrange(header["nrofentries"]):
+    for i in xrange(header.nrofentries):
         entry = read_entry(r, header)
 
         paths.add(entry["pathname"])
@@ -298,7 +304,7 @@ def print_reucextensiondata(extensiondata):
 
 
 def write_header(fw, header, paths, files):
-    crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header["signature"], 5,
+    crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header.signature, 5,
         len(paths), len(files), 0))
     fw.write(CRC_STRUCT.pack(crc))
 
@@ -366,7 +372,7 @@ def write_file_entry(fw, entry, offset):
     fw.write(CRC_STRUCT.pack(partialcrc))
 
 
-def write_file_data(fw, indexentries, dirdata):
+def write_file_data(fw, indexentries):
     dirdata = list()
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
