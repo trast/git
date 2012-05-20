@@ -379,7 +379,7 @@ def write_file_offsets(fw, foffsets, fileoffsetbeginning):
         fw.write(struct.pack("!I", f))
 
 
-def write_directory_data(fw, dirdata, dirwritedataoffsets, 
+def write_directory_data(fw, dirdata, dirwritedataoffsets,
         fileoffsetbeginning):
     foffset = fileoffsetbeginning
     for d in sorted(dirdata.iteritems()):
@@ -449,7 +449,7 @@ def compile_cache_tree_data(dirdata, extensiondata):
             dirdata[entry[1]["path"].strip("/")]["objname"] = entry[1]["sha1"]
         except:
             pass
-        
+
     return dirdata
 
 
@@ -490,7 +490,7 @@ def read_index():
             treeextensiondata, reucextensiondata)
 
 
-def write_index_v5(header, indexentries, conflictedentries, paths, files, 
+def write_index_v5(header, indexentries, conflictedentries, paths, files,
         treeextensiondata, reucextensiondata):
     fw = open(".git/index-v5", "wb")
 
