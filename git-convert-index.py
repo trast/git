@@ -367,6 +367,7 @@ def write_file_entry(fw, entry, offset):
 
 
 def write_file_data(fw, indexentries, dirdata):
+    dirdata = list()
     fileoffsets = list()
     for entry in sorted(indexentries, key=lambda k: k['pathname']):
         offset = fw.tell()
@@ -507,7 +508,7 @@ def write_index_v5(header, indexentries, conflictedentries, paths, files,
             paths)
 
     fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
-    fileoffsets, dirdata = write_file_data(fw, indexentries, dirdata)
+    fileoffsets, dirdata = write_file_data(fw, indexentries)
 
     # dirdata = write_conflicted_data(fw, conflictedentries,
     #         reucextensiondata, dirdata)
