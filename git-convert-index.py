@@ -386,43 +386,43 @@ def write_file_offsets(fw, foffsets, fileoffsetbeginning):
 def write_directory_data(fw, dirdata, dirwritedataoffsets,
         fileoffsetbeginning):
     foffset = fileoffsetbeginning
-    for d in sorted(dirdata.iteritems()):
+    for (pathname, entry) in sorted(dirdata.iteritems()):
         try:
-            fw.seek(dirwritedataoffsets[d[0]])
+            fw.seek(dirwritedataoffsets[pathname])
         except KeyError:
             continue
 
-        if d[0] == "":
-            partialcrc = binascii.crc32(d[0] + "\0")
+        if pathname == "":
+            partialcrc = binascii.crc32(pathname + "\0")
         else:
-            partialcrc = binascii.crc32(d[0] + "/\0")
+            partialcrc = binascii.crc32(pathname + "/\0")
 
         try:
-            flags = d[1]["flags"]
+            flags = entry["flags"]
         except KeyError:
             flags = 0
 
         try:
-            cr = d[1]["cr"]
-            ncr = d[1]["ncr"]
+            cr = entry["cr"]
+            ncr = entry["ncr"]
         except KeyError:
             cr = 0
             ncr = 0
 
         try:
-            nsubtrees = d[1]["nsubtrees"]
-            nentries = d[1]["nentries"]
+            nsubtrees = entry["nsubtrees"]
+            nentries = entry["nentries"]
         except KeyError:
             nsubtrees = 0
             nentries = 0
 
         try:
-            nfiles = d[1]["nfiles"]
+            nfiles = entry["nfiles"]
         except KeyError:
             nfiles = 0
 
         try:
-            objname = binascii.unhexlify(d[1]["objname"])
+            objname = binascii.unhexlify(entry["objname"])
         except KeyError:
             objname = 20 * '\0'
 
@@ -442,15 +442,15 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
     pass
 
 def compile_cache_tree_data(dirdata, extensiondata):
-    for entry in extensiondata.iteritems():
-        dirdata[entry[1]["path"].strip("/")]["nentries"] = \
-                int(entry[1]["entry_count"])
+    for (path, entry) in extensiondata.iteritems():
+        dirdata[path.strip("/")]["nentries"] = \
+                int(entry["entry_count"])
 
-        dirdata[entry[1]["path"].strip("/")]["nsubtrees"] = \
-                entry[1]["subtreenr"]
+        dirdata[path.strip("/")]["nsubtrees"] = \
+                entry["subtreenr"]
 
         try:
-            dirdata[entry[1]["path"].strip("/")]["objname"] = entry[1]["sha1"]
+            dirdata[path.strip("/")]["objname"] = entry["sha1"]
         except:
             pass
 
