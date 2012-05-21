@@ -351,10 +351,11 @@ def write_fake_file_offsets(fw, indexentries):
 
 
 def write_dir_offsets(fw, offsets):
-    # Skip the header
-    fw.seek(indexlib.HEADER_SIZE)
+    # Skip the header, which currently doesn't include any extensions
+    fw.seek(indexlib.HEADER_V5_STRUCT.size
+            + indexlib.CRC_STRUCT.size)
     for o in offsets:
-        fw.write(indexlib.OFFSET_STRUCT.pack(o))
+        fw.write(indexlib.DIR_OFFSET_STRUCT.pack(o))
 
 
 def write_file_entry(fw, entry, offset):

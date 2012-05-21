@@ -38,7 +38,6 @@ nentries: %(nentries)s objname: %(objname)s"""
 FILES_FORMAT = """\
 %(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s
 mode: %(mode)s flags: %(flags)s\nstatcrc: """
-HEADER_SIZE = 24
 
 HEADER_STRUCT = struct.Struct("!4sII")
 HEADER_V5_STRUCT = struct.Struct("!4sIIII")
@@ -58,6 +57,9 @@ STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
 FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
 OFFSET_STRUCT = struct.Struct("!I")
+EXTENSION_OFFSET_STRUCT = struct.Struct("!I")
+DIR_OFFSET_STRUCT = struct.Struct("!I")
+
 
 class SHAError(Exception):
     pass
