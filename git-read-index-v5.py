@@ -233,8 +233,6 @@ def read_dir(f):
     (flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname) = \
             read_struct(f, indexlib.DIRECTORY_DATA_STRUCT, crc)
 
-    print (flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname)
-
     if not crc.matches(f):
         raise indexlib.CrcError("Wrong crc for directory entry: " + pathname)
 
