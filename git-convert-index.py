@@ -43,31 +43,6 @@ class Reader():
     def getSha1(self):
         return self._sha1
 
-class SHAError(Exception):
-    pass
-
-
-HEADER_SIZE = 24
-
-HEADER_STRUCT = struct.Struct("!4sII")
-HEADER_V5_STRUCT = struct.Struct("!4sIIII")
-
-SIZE_STRUCT = struct.Struct("!I")
-
-STAT_DATA_STRUCT = struct.Struct("!IIIIIIIIII 20sh")
-
-XTFLAGS_STRUCT = struct.Struct("!h")
-
-CRC_STRUCT = struct.Struct("!I")
-
-DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
-
-STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
-
-FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
-
-OFFSET_STRUCT = struct.Struct("!I")
-
 class Header:
     def __init__(self, signature, version, nrofentries):
         self.signature = signature
@@ -130,12 +105,8 @@ class DirEntry:
 
 def write_calc_crc(fw, data, partialcrc=0):
     fw.write(data)
-    crc = calculate_crc(data, partialcrc)
+    crc = indexlib.calculate_crc(data, partialcrc)
     return crc
-
-
-def calculate_crc(data, partialcrc=0):
-    return binascii.crc32(data, partialcrc) & 0xffffffff
 
 
 def read_name(r, delimiter):
@@ -150,18 +121,19 @@ def read_name(r, delimiter):
 
 
 def read_header(r):
-    (signature, version, nrofentries) = HEADER_STRUCT.unpack(
-            r.read(HEADER_STRUCT.size))
+    (signature, version, nrofentries) = indexlib.HEADER_STRUCT.unpack(
+            r.read(indexlib.HEADER_STRUCT.size))
     return Header(signature, version, nrofentries)
 
 
 def read_entry(r, header):
     (ctimesec, ctimensec, mtimesec, mtimensec, dev, ino, mode, uid, gid,
-            filesize, sha1, flags) = STAT_DATA_STRUCT.unpack(
-                    r.read(STAT_DATA_STRUCT.size))
+            filesize, sha1, flags) = indexlib.STAT_DATA_STRUCT.unpack(
+                    r.read(indexlib.STAT_DATA_STRUCT.size))
 
     if header.version == 3:
-        xtflags = XTFLAGS_STRUCT.unpack(r.read(XTFLAGS_STRUCT.size))
+        xtflags = indexlib.XTFLAGS_STRUCT.unpack(r.read(
+            indelib.XTFLAGS_STRUCT.size))
 
     (name, readbytes) = read_name(r, '\0')
 
@@ -218,7 +190,7 @@ def read_tree_extensiondata(r):
     subtree = [""]
     listsize = 0
     extensiondata = dict()
-    while read < int(SIZE_STRUCT.unpack(extensionsize)[0]):
+    while read < int(indexlib.SIZE_STRUCT.unpack(extensionsize)[0]):
         (path, readbytes) = read_name(r, '\0')
         read += readbytes
 
@@ -287,7 +259,7 @@ def read_reuc_extensiondata(r):
 
     read = 0
     extensiondata = defaultdict(list)
-    while read < int(SIZE_STRUCT.unpack(extensionsize)[0]):
+    while read < int(indexlib.SIZE_STRUCT.unpack(extensionsize)[0]):
         (entry, readbytes) = read_reuc_extension_entry(r)
         read += readbytes
         extensiondata["/".join(entry.path.split("/"))[:-1]].append(entry)
@@ -336,14 +308,14 @@ def print_reucextensiondata(extensiondata):
 
 
 def write_header(fw, header, paths, files):
-    crc = write_calc_crc(fw, HEADER_V5_STRUCT.pack(header.signature, 5,
+    crc = write_calc_crc(fw, indexlib.HEADER_V5_STRUCT.pack(header.signature, 5,
         len(paths), len(files), 0))
-    fw.write(CRC_STRUCT.pack(crc))
+    fw.write(indexlib.CRC_STRUCT.pack(crc))
 
 
 def write_fake_dir_offsets(fw, paths):
     for p in paths:
-        fw.write(OFFSET_STRUCT.pack(0))
+        fw.write(indexlib.OFFSET_STRUCT.pack(0))
 
 
 def write_directories(fw, paths):
@@ -364,8 +336,9 @@ def write_directories(fw, paths):
         # All this fields will be filled out when the rest of the index
         # is written
         # CRC will be calculated when data is filled in
-        fw.write(DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0, 20 * '\0'))
-        fw.write(CRC_STRUCT.pack(0))
+        fw.write(indexlib.DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0,
+            20 * '\0'))
+        fw.write(indexlib.CRC_STRUCT.pack(0))
 
     return diroffsets, dirwritedataoffsets
 
@@ -373,19 +346,19 @@ def write_directories(fw, paths):
 def write_fake_file_offsets(fw, indexentries):
     beginning = fw.tell()
     for f in indexentries:
-        fw.write(OFFSET_STRUCT.pack(0))
+        fw.write(indexlib.OFFSET_STRUCT.pack(0))
     return beginning
 
 
 def write_dir_offsets(fw, offsets):
     # Skip the header
-    fw.seek(HEADER_SIZE)
+    fw.seek(indexlib.HEADER_SIZE)
     for o in offsets:
-        fw.write(OFFSET_STRUCT.pack(o))
+        fw.write(indexlib.OFFSET_STRUCT.pack(o))
 
 
 def write_file_entry(fw, entry, offset):
-    partialcrc = calculate_crc(OFFSET_STRUCT.pack(offset))
+    partialcrc = indexlib.calculate_crc(indexlib.OFFSET_STRUCT.pack(offset))
     partialcrc = write_calc_crc(fw, entry.filename + "\0", partialcrc)
 
     # Prepare flags
@@ -393,15 +366,15 @@ def write_file_entry(fw, entry, offset):
     flags += (entry.flags & 0b0011000000000000) * 2
 
     # calculate crc for stat data
-    stat_crc = calculate_crc(STAT_DATA_CRC_STRUCT.pack(offset,
+    stat_crc = indexlib.calculate_crc(indexlib.STAT_DATA_CRC_STRUCT.pack(offset,
         entry.ctimesec, entry.ctimensec, entry.ino,
         entry.filesize, entry.dev, entry.uid, entry.gid))
 
-    stat_data = FILE_DATA_STRUCT.pack(flags, entry.mode,
+    stat_data = indexlib.FILE_DATA_STRUCT.pack(flags, entry.mode,
             entry.mtimesec, entry.mtimensec, stat_crc, entry.sha1)
     partialcrc = write_calc_crc(fw, stat_data, partialcrc)
 
-    fw.write(CRC_STRUCT.pack(partialcrc))
+    fw.write(indexlib.CRC_STRUCT.pack(partialcrc))
 
 
 def write_file_data(fw, indexentries):
@@ -422,7 +395,7 @@ def write_file_data(fw, indexentries):
 def write_file_offsets(fw, foffsets, fileoffsetbeginning):
     fw.seek(fileoffsetbeginning)
     for f in foffsets:
-        fw.write(OFFSET_STRUCT.pack(f))
+        fw.write(indexlib.OFFSET_STRUCT.pack(f))
 
 
 def write_directory_data(fw, dirdata, dirwritedataoffsets,
@@ -435,18 +408,19 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
             continue
 
         if pathname == "":
-            partialcrc = calculate_crc(pathname + "\0")
+            partialcrc = indexlib.calculate_crc(pathname + "\0")
         else:
-            partialcrc = calculate_crc(pathname + "/\0")
+            partialcrc = indexlib.calculate_crc(pathname + "/\0")
 
 
-        partialcrc = write_calc_crc(fw, DIRECTORY_DATA_STRUCT.pack(entry.flags,
-            foffset, entry.cr, entry.ncr, entry.nsubtrees, entry.nfiles,
-            entry.nentries, entry.objname), partialcrc)
+        partialcrc = write_calc_crc(fw,
+                indexlib.DIRECTORY_DATA_STRUCT.pack(entry.flags, foffset,
+                entry.cr, entry.ncr, entry.nsubtrees, entry.nfiles,
+                entry.nentries, entry.objname), partialcrc)
 
         foffset += entry.nfiles * 4
 
-        fw.write(CRC_STRUCT.pack(partialcrc))
+        fw.write(indexlib.CRC_STRUCT.pack(partialcrc))
 
 
 def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
@@ -497,7 +471,7 @@ def read_index():
         sha1read = ext + r.read_without_updating_sha1(16)
 
     if sha1.hexdigest() != binascii.hexlify(sha1read):
-        raise SHAError("SHA-1 code of the file doesn't match")
+        raise indexlib.SHAError("SHA-1 code of the file doesn't match")
 
     return (header, indexentries, conflictedentries, paths, files,
             treeextensiondata, reucextensiondata)

@@ -14,39 +14,10 @@
 import struct
 import binascii
 import sys
+import python.lib.indexlib as indexlib
 from collections import deque
 
-DIR_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
-HEADER_STRUCT = struct.Struct("!IIII")
-CRC_STRUCT = struct.Struct("!i")
-OFFSET_STRUCT = struct.Struct("!I")
-FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
-HEADER_FORMAT = """\
-Signature: %(signature)s\t\t\tVersion: %(vnr)s
-Number of directories: %(ndir)s\tNumber of files: %(nfile)s
-Number of extensions: %(nextensions)s"""
-
-DIRECTORY_FORMAT = """\
-path: %(pathname)s flags: %(flags)s foffset: %(foffset)s
-ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s
-nentries: %(nentries)s objname: %(objname)s"""
-
-FILES_FORMAT = """\
-%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s
-mode: %(mode)s flags: %(flags)s\nstatcrc: """
-
-
-class SignatureError(Exception):
-    pass
-
-
-class VersionError(Exception):
-    pass
-
-
-class CrcError(Exception):
-    pass
 
 
 def read_calc_crc(f, n, partialcrc=0):
@@ -63,7 +34,7 @@ def read_calc_crc(f, n, partialcrc=0):
         data, crc: a tuple of the read data and the calculated crc code
     """
     data = f.read(n)
-    crc = binascii.crc32(data, partialcrc)
+    crc = indexlib.calculate_crc(data, partialcrc)
     return data, crc
 
 
@@ -81,28 +52,29 @@ def read_header(f):
             read
     """
     # 4 byte signature
-    (signature, partialcrc) = read_calc_crc(f, 4)
     (readheader, partialcrc) = read_calc_crc(f,
-            HEADER_STRUCT.size, partialcrc)
-    (vnr, ndir, nfile, nextensions) = HEADER_STRUCT.unpack(readheader)
+            indexlib.HEADER_V5_STRUCT.size)
+    (signature, vnr, ndir, nfile,
+            nextensions) = indexlib.HEADER_V5_STRUCT.unpack(readheader)
 
     if signature != "DIRC":
-        raise SignatureError("Signature is not DIRC. Signature: " + signature)
+        raise indexlib.SignatureError("Signature is not DIRC. Signature: " +
+                signature)
 
     if vnr != 5:
-        raise VersionError("The index is not Version 5. Version: " + str(vnr))
+        raise indexlib.VersionError("The index is not Version 5. Version: " + str(vnr))
 
     extoffsets = list()
     for i in xrange(nextensions):
         (readoffset, partialcrc) = read_calc_crc(f,
-                CRC_STRUCT.size, partialcrc)
+                indexlib.CRC_STRUCT.size, partialcrc)
         extoffsets.append(readoffset)
 
-    crc = f.read(CRC_STRUCT.size)
-    datacrc = CRC_STRUCT.pack(partialcrc)
+    crc = f.read(indexlib.CRC_STRUCT.size)
+    datacrc = indexlib.CRC_STRUCT.pack(partialcrc)
 
     if crc != datacrc:
-        raise CrcError("Wrong header crc")
+        raise indexlib.CrcError("Wrong header crc")
 
     return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
             nextensions=nextensions, extoffsets=extoffsets)
@@ -149,8 +121,8 @@ def read_index_entries(f, header):
     # we read the files continously and have the file pointer always in the
     # right place. Doing so saves 2 seeks per directory.
     f.seek(directories[0]["foffset"])
-    (readoffset, partialcrc) = read_calc_crc(f, OFFSET_STRUCT.size)
-    (offset, ) = OFFSET_STRUCT.unpack(readoffset)
+    (readoffset, partialcrc) = read_calc_crc(f, indexlib.OFFSET_STRUCT.size)
+    (offset, ) = indexlib.OFFSET_STRUCT.unpack(readoffset)
     f.seek(offset)
 
     files = list()
@@ -179,15 +151,15 @@ def read_file(f, pathname):
 
     (filename, partialcrc) = read_name(f, partialcrc)
 
-    (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
+    (statdata, partialcrc) = read_calc_crc(f, indexlib.FILE_DATA_STRUCT.size,
             partialcrc)
     (flags, mode, mtimes, mtimens,
-            statcrc, objhash) = FILE_DATA_STRUCT.unpack(statdata)
+            statcrc, objhash) = indexlib.FILE_DATA_STRUCT.unpack(statdata)
 
-    datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(CRC_STRUCT.size)
+    datacrc = indexlib.CRC_STRUCT.pack(partialcrc)
+    crc = f.read(indexlib.CRC_STRUCT.size)
     if datacrc != crc:
-        raise CrcError("Wrong CRC for file entry: " + filename)
+        raise indexlib.CrcError("Wrong CRC for file entry: " + filename)
 
     return dict(name=pathname + filename,
             flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
@@ -238,15 +210,15 @@ def read_dir(f):
     """
     (pathname, partialcrc) = read_name(f)
 
-    (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size,
-            partialcrc)
-    (flags, foffset, cr, ncr, nsubtrees, nfiles,
-            nentries, objname) = DIR_DATA_STRUCT.unpack(readstatdata)
+    (readstatdata, partialcrc) = read_calc_crc(f,
+            indexlib.DIRECTORY_DATA_STRUCT.size, partialcrc)
+    (flags, foffset, cr, ncr, nsubtrees, nfiles, nentries,
+            objname) = indexlib.DIRECTORY_DATA_STRUCT.unpack(readstatdata)
 
-    datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(CRC_STRUCT.size)
+    datacrc = indexlib.CRC_STRUCT.pack(partialcrc)
+    crc = f.read(indexlib.CRC_STRUCT.size)
     if crc != datacrc:
-        raise CrcError("Wrong crc for directory entry: " + pathname)
+        raise indexlib.CrcError("Wrong crc for directory entry: " + pathname)
 
     return dict(pathname=pathname, flags=flags, foffset=foffset,
         cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
@@ -270,18 +242,18 @@ def read_dirs(f, ndir):
 
 
 def print_header(header):
-    print(HEADER_FORMAT % header)
+    print(indexlib.HEADER_V5_FORMAT % header)
 
 
 def print_directories(directories):
     for d in directories:
-        print (DIRECTORY_FORMAT % d)
+        print (indexlib.DIRECTORY_FORMAT % d)
 
 
 def print_files(files, verbose=False):
     for fi in files:
         if verbose:
-            print (FILES_FORMAT % fi + hex(fi["statcrc"]))
+            print (indexlib.FILES_FORMAT % fi + hex(fi["statcrc"]))
         else:
             print fi["name"]
 
