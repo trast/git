@@ -314,8 +314,9 @@ def write_header(fw, header, paths, files):
 
 
 def write_fake_dir_offsets(fw, paths):
-    for p in paths:
-        fw.write(indexlib.OFFSET_STRUCT.pack(0))
+    start = fw.tell()
+    # Just seek over the unneeded stuff
+    fw.seek(start + len(paths) * 4)
 
 
 def write_directories(fw, paths):
@@ -345,8 +346,7 @@ def write_directories(fw, paths):
 
 def write_fake_file_offsets(fw, indexentries):
     beginning = fw.tell()
-    for f in indexentries:
-        fw.write(indexlib.OFFSET_STRUCT.pack(0))
+    fw.seek(beginning + len(indexentries) * 4)
     return beginning
 
 
