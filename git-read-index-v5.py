@@ -14,10 +14,9 @@
 import struct
 import binascii
 import sys
+import os.path
 import python.lib.indexlib as indexlib
 from collections import deque
-
-
 
 
 def read_calc_crc(f, n, partialcrc=0):
@@ -51,6 +50,9 @@ def read_header(f):
         CrcError: the crc code doesn't match with the contents that have been
             read
     """
+    if os.path.getsize(f.name) < indexlib.HEADER_SIZE:
+        raise indexlib.FilesizeError("Index file smaller than expected")
+
     # 4 byte signature
     (readheader, partialcrc) = read_calc_crc(f,
             indexlib.HEADER_V5_STRUCT.size)

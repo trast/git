@@ -65,11 +65,13 @@ class SHAError(Exception):
 class SignatureError(Exception):
     pass
 
-
 class VersionError(Exception):
     pass
 
 class CrcError(Exception):
+    pass
+
+class FilesizeError(Exception):
     pass
 
 def calculate_crc(data, partialcrc=0):
