@@ -396,8 +396,6 @@ def write_file_data(fw, indexentries):
                 if pathname not in dirdata:
                     dirdata[pathname.strip("/")] = DirEntry()
 
-            dirdata[entry.pathname] = DirEntry()
-
         dirdata[entry.pathname].nfiles += 1
 
     return fileoffsets, dirdata
