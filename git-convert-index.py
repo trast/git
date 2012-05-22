@@ -386,6 +386,16 @@ def write_file_data(fw, indexentries):
         fileoffsets.append(offset)
         write_file_entry(fw, entry, offset)
         if entry.pathname not in dirdata:
+            path = entry.pathname.split("/")
+
+            # Add all subpaths to the directory index, otherwise the cache-tree
+            # might cause errors
+            pathname = ""
+            for p in path:
+                pathname += p + "/"
+                if pathname not in dirdata:
+                    dirdata[pathname.strip("/")] = DirEntry()
+
             dirdata[entry.pathname] = DirEntry()
 
         dirdata[entry.pathname].nfiles += 1
