@@ -62,6 +62,8 @@ DIR_OFFSET_STRUCT = struct.Struct("!I")
 FBLOCK_OFFSET_STRUCT = struct.Struct("!I")
 FILE_OFFSET_STRUCT = struct.Struct("!I")
 
+NR_CONFLICT_STRUCT = struct.Struct("!I")
+CONFLICT_STRUCT = struct.Struct("!HH 20s")
 
 class SHAError(Exception):
     pass

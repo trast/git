@@ -80,15 +80,23 @@ class TreeExtensionData:
 
 
 class ReucExtensionData:
-    def __init__(self, path, entry_mode0, entry_mode1, entry_mode2, obj_names0,
-            obj_names1, obj_names2):
+    def __init__(self, path, entry_mode0, entry_mode1, entry_mode2, obj_name0,
+            obj_name1, obj_name2):
         self.path        = path
         self.entry_mode0 = entry_mode0
         self.entry_mode1 = entry_mode1
         self.entry_mode2 = entry_mode2
-        self.obj_names0  = obj_names0
-        self.obj_names1  = obj_names1
-        self.obj_names2  = obj_names2
+        self.obj_name0  = obj_name0
+        self.obj_name1  = obj_name1
+        self.obj_name2  = obj_name2
+
+    def nconflicts(self):
+        if self.entry_mode2 != 0:
+            return 3
+        if self.entry_mode1 != 0:
+            return 2
+
+        return 1
 
 
 class DirEntry:
@@ -263,7 +271,7 @@ def read_reuc_extensiondata(r):
     while read < int(indexlib.SIZE_STRUCT.unpack(extensionsize)[0]):
         (entry, readbytes) = read_reuc_extension_entry(r)
         read += readbytes
-        extensiondata["/".join(entry.path.split("/"))[:-1]].append(entry)
+        extensiondata["/".join(entry.path.split("/")[:-1])].append(entry)
 
     return extensiondata
 
@@ -436,7 +444,38 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
 
 
 def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
-    pass
+    todo = list()
+    for d in dirdata:
+        for c in conflictedentries:
+            if c in d:
+                todo.append(d)
+                break
+        for r in reucdata:
+            if r in d:
+                todo.append(r)
+                break
+
+    for t in todo:
+        for c in conflictedentries[t]:
+            pass
+        for r in reucdata[t]:
+            crc = write_calc_crc(fw, r.path + "\0")
+            crc = write_calc_crc(fw,
+                    indexlib.NR_CONFLICT_STRUCT.pack(r.nconflicts()), crc)
+            flags = 0
+            if r.entry_mode0 != 0:
+                crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
+                    r.entry_mode0, r.obj_name0))
+
+            if r.entry_mode1 != 0:
+                crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
+                    r.entry_mode1, r.obj_name1))
+
+            if r.entry_mode2 != 0:
+                crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
+                    r.entry_mode2, r.obj_name2))
+            fw.write(indexlib.CRC_STRUCT.pack(crc))
+    return dirdata
 
 
 def write_fblockoffset(fw, fblockoffset):
@@ -506,8 +545,8 @@ def write_index_v5(header, indexentries, conflictedentries, paths, files,
     fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
     (fileoffsets, dirdata, fblockoffset) = write_file_data(fw, indexentries)
 
-    # dirdata = write_conflicted_data(fw, conflictedentries,
-    #         reucextensiondata, dirdata)
+    dirdata = write_conflicted_data(fw, conflictedentries,
+            reucextensiondata, dirdata)
 
     write_header(fw, header, paths, files, fblockoffset)
     write_dir_offsets(fw, diroffsets)
