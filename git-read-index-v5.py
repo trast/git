@@ -74,7 +74,7 @@ def read_header(f):
         raise indexlib.FilesizeError("Index file smaller than expected")
 
     crc = CRC()
-    (signature, vnr, ndir, nfile, nextensions) = read_struct(f,
+    (signature, vnr, ndir, nfile, fblockoffset, nextensions) = read_struct(f,
             indexlib.HEADER_V5_STRUCT, crc)
 
     if signature != "DIRC":
@@ -95,7 +95,8 @@ def read_header(f):
         raise indexlib.CrcError("Wrong header crc")
 
     return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
-            nextensions=nextensions, extoffsets=extoffsets)
+            fblockoffset = fblockoffset, nextensions=nextensions,
+            extoffsets=extoffsets)
 
 
 def read_name(f, crc=None):
@@ -143,22 +144,22 @@ def read_index_entries(f, header):
     # The foffset only needs to be considered for the first directory, since
     # we read the files continously and have the file pointer always in the
     # right place. Doing so saves 2 seeks per directory.
-    f.seek(directories[0]["foffset"])
-    (offset, ) = read_struct(f, indexlib.OFFSET_STRUCT)
-    f.seek(offset)
+    f.seek(header["fblockoffset"] + directories[0]["foffset"])
 
     files = list()
-    read_files(f, directories, 0, files)
+    read_files(f, directories, f.tell(), 0, files)
     return files
 
 
-def read_file(f, pathname):
+def read_file(f, pathname, fblockoffset):
     """ Read a single file from the index
 
     Args:
         f: the index file from which the file data should be read.
         pathname: the pathname of the file, with which the filename is
             combined to get the full path
+        fblockoffset: the offset to the file block, used for calculating the
+            crc code.
     Returns:
         A dict with all filedata
     Raises:
@@ -170,7 +171,7 @@ def read_file(f, pathname):
     # The fileoffset is only read when really needed, in the other cases
     # it's just calculated from the file position, to save on reads and
     # simplify the code.
-    crc.add(struct.pack("!I", f.tell()))
+    crc.add(indexlib.FILE_OFFSET_STRUCT.pack(f.tell() - fblockoffset))
 
     filename = read_name(f, crc)
 
@@ -185,7 +186,7 @@ def read_file(f, pathname):
             statcrc=statcrc, objhash=binascii.hexlify(objhash))
 
 
-def read_files(f, directories, dirnr, files_out):
+def read_files(f, directories, fblockoffset, dirnr, files_out):
     """ Read all files from the index and combine them with their respective
     pathname. Files are read lexically ordered. The function does this
     recursively
@@ -193,6 +194,9 @@ def read_files(f, directories, dirnr, files_out):
     Args:
         f: the index file from which the files should be read
         directories: all directories that are in the index file
+        fblockoffset: the offset to the fileentries block. This is used for
+            calculating the crc code, so that the fileoffsets don't need to
+            be read.
         dirnr: The files of the dirnrth directory are read. This has to be 0
             for the initial call.
         files_out: The list into which is used to store the files. Pass a
@@ -204,12 +208,14 @@ def read_files(f, directories, dirnr, files_out):
     """
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
-        queue.append(read_file(f, directories[dirnr]["pathname"]))
+        queue.append(read_file(f, directories[dirnr]["pathname"],
+            fblockoffset))
 
     while queue:
         if (len(directories) > dirnr + 1 and
                 queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-            dirnr = read_files(f, directories, dirnr + 1, files_out)
+            dirnr = read_files(f, directories, fblockoffset, dirnr + 1,
+                    files_out)
         else:
             files_out.append(queue.popleft())
 
