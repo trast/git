@@ -460,6 +460,12 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
             entries = list()
             entry = conflictedentries[t].pop()
             entries.append(entry)
+
+            if dirdata[t].cr == 0:
+                dirdata[t].cr = fw.tell()
+
+            dirdata[t].ncr = 1
+
             for e in conflictedentries[t]:
                 if e.filename == entry.pathname:
                     conflictedentries[t].remove(e)
@@ -500,6 +506,7 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
                 crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
                     r.entry_mode2, r.obj_name2))
             fw.write(indexlib.CRC_STRUCT.pack(crc))
+
     return dirdata
 
 
