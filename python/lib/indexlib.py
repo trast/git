@@ -40,7 +40,7 @@ FILES_FORMAT = """\
 mode: %(mode)s flags: %(flags)s\nstatcrc: """
 
 HEADER_STRUCT = struct.Struct("!4sII")
-HEADER_V5_STRUCT = struct.Struct("!4sIIII")
+HEADER_V5_STRUCT = struct.Struct("!4sIIIII")
 
 SIZE_STRUCT = struct.Struct("!I")
 
@@ -59,6 +59,8 @@ FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 OFFSET_STRUCT = struct.Struct("!I")
 EXTENSION_OFFSET_STRUCT = struct.Struct("!I")
 DIR_OFFSET_STRUCT = struct.Struct("!I")
+FBLOCK_OFFSET_STRUCT = struct.Struct("!I")
+FILE_OFFSET_STRUCT = struct.Struct("!I")
 
 
 class SHAError(Exception):
@@ -79,3 +81,13 @@ class FilesizeError(Exception):
 def calculate_crc(data, partialcrc=0):
     return binascii.crc32(data, partialcrc) & 0xffffffff
 
+
+def get_sub_paths(path):
+    path = path.split("/")
+
+    pathname = ""
+    paths = list()
+    for p in path:
+        pathname += p + "/"
+        paths.append(pathname.strip("/"))
+    return paths

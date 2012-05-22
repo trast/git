@@ -166,7 +166,8 @@ def read_index_entries(r, header):
     for i in xrange(header.nrofentries):
         entry = read_entry(r, header)
 
-        paths.add(entry.pathname)
+        for p in indexlib.get_sub_paths(entry.pathname):
+            paths.add(entry.pathname)
         files.append(entry.filename)
 
         stage = (entry.flags & 0b0011000000000000) / 0b001000000000000
@@ -307,23 +308,29 @@ def print_reucextensiondata(extensiondata):
                         " Objectnames 3: " + binascii.hexlify(e.obj_names2))
 
 
-def write_header(fw, header, paths, files):
+def write_header(fw, header, paths, files, fblockoffset):
+    # The header is at the beginning ;-)
+    fw.seek(0)
+    # Offset to the file block has to be filled in later
     crc = write_calc_crc(fw, indexlib.HEADER_V5_STRUCT.pack(header.signature, 5,
-        len(paths), len(files), 0))
+        len(paths), len(files), fblockoffset, 0))
     fw.write(indexlib.CRC_STRUCT.pack(crc))
 
 
-def write_fake_dir_offsets(fw, paths):
-    start = fw.tell()
+def skip_header_dir_offsets(fw, paths):
     # Just seek over the unneeded stuff
-    fw.seek(start + len(paths) * 4)
+    fw.seek(indexlib.HEADER_V5_STRUCT.size
+            + indexlib.CRC_STRUCT.size
+            + len(paths) * indexlib.DIR_OFFSET_STRUCT.size)
 
 
 def write_directories(fw, paths):
     diroffsets = list()
     dirwritedataoffsets = dict()
+    # Directory offsets relative to the start of the directory block
+    beginning = fw.tell()
     for p in sorted(paths):
-        diroffsets.append(fw.tell())
+        diroffsets.append(fw.tell() - beginning)
 
         # pathname
         if p == "":
@@ -381,24 +388,20 @@ def write_file_entry(fw, entry, offset):
 def write_file_data(fw, indexentries):
     dirdata = dict()
     fileoffsets = list()
+    beginning = fw.tell()
     for entry in sorted(indexentries, key=lambda k: k.pathname):
-        offset = fw.tell()
+        offset = fw.tell() - beginning
         fileoffsets.append(offset)
         write_file_entry(fw, entry, offset)
         if entry.pathname not in dirdata:
-            path = entry.pathname.split("/")
-
-            # Add all subpaths to the directory index, otherwise the cache-tree
-            # might cause errors
-            pathname = ""
-            for p in path:
-                pathname += p + "/"
-                if pathname not in dirdata:
-                    dirdata[pathname.strip("/")] = DirEntry()
+            # Add empty directories to the index too
+            for p in indexlib.get_sub_paths(entry.pathname):
+                if p not in dirdata:
+                    dirdata[p] = DirEntry()
 
         dirdata[entry.pathname].nfiles += 1
 
-    return fileoffsets, dirdata
+    return fileoffsets, dirdata, beginning
 
 
 def write_file_offsets(fw, foffsets, fileoffsetbeginning):
@@ -409,7 +412,7 @@ def write_file_offsets(fw, foffsets, fileoffsetbeginning):
 
 def write_directory_data(fw, dirdata, dirwritedataoffsets,
         fileoffsetbeginning):
-    foffset = fileoffsetbeginning
+    foffset = 0
     for (pathname, entry) in sorted(dirdata.iteritems()):
         try:
             fw.seek(dirwritedataoffsets[pathname])
@@ -434,6 +437,12 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
 
 def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
     pass
+
+
+def write_fblockoffset(fw, fblockoffset):
+    fw.seek(16)
+    fw.write(indexlib.FBLOCK_OFFSET_STRUCT.pack(fblockoffset))
+
 
 def compile_cache_tree_data(dirdata, extensiondata):
     for (path, entry) in extensiondata.iteritems():
@@ -490,17 +499,17 @@ def write_index_v5(header, indexentries, conflictedentries, paths, files,
         treeextensiondata, reucextensiondata):
     fw = open(".git/index-v5", "wb")
 
-    write_header(fw, header, paths, files)
-    write_fake_dir_offsets(fw, paths)
+    skip_header_dir_offsets(fw, paths)
     (diroffsets, dirwritedataoffsets) = write_directories(fw,
             paths)
 
     fileoffsetbeginning = write_fake_file_offsets(fw, indexentries)
-    fileoffsets, dirdata = write_file_data(fw, indexentries)
+    (fileoffsets, dirdata, fblockoffset) = write_file_data(fw, indexentries)
 
     # dirdata = write_conflicted_data(fw, conflictedentries,
     #         reucextensiondata, dirdata)
 
+    write_header(fw, header, paths, files, fblockoffset)
     write_dir_offsets(fw, diroffsets)
     write_file_offsets(fw, fileoffsets, fileoffsetbeginning)
 
