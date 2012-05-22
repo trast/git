@@ -444,20 +444,45 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
 
 
 def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
-    todo = list()
+    todo = set()
     for d in dirdata:
         for c in conflictedentries:
             if c in d:
-                todo.append(d)
+                todo.add(d)
                 break
         for r in reucdata:
             if r in d:
-                todo.append(r)
+                todo.add(r)
                 break
 
     for t in todo:
-        for c in conflictedentries[t]:
-            pass
+        while conflictedentries[t]:
+            entries = list()
+            entry = conflictedentries[t].pop()
+            entries.append(entry)
+            for e in conflictedentries[t]:
+                if e.filename == entry.pathname:
+                    conflictedentries[t].remove(e)
+                    entries.append(e)
+            
+            if entry.pathname == "":
+                pathname = ""
+            else:
+                pathname = entry.pathname + "/" + entry.filename + "\0"
+
+            crc = write_calc_crc(fw, pathname)
+            crc = write_calc_crc(fw,
+                    indexlib.NR_CONFLICT_STRUCT.pack(len(entries)), crc)
+            conflicted = 0b1000000000000000
+            for e in entries:
+                flags = (e.flags & 0b0011000000000000) << 1
+                flags |= conflicted
+                crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
+                    e.mode, e.sha1), crc)
+
+            fw.write(indexlib.CRC_STRUCT.pack(crc))
+
+
         for r in reucdata[t]:
             crc = write_calc_crc(fw, r.path + "\0")
             crc = write_calc_crc(fw,
