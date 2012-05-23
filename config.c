@@ -37,6 +37,11 @@ static int handle_path_include(const char *path, struct config_include_data *inc
 {
 	int ret = 0;
 	struct strbuf buf = STRBUF_INIT;
+	char *expanded = expand_user_path(path);
+
+	if (!expanded)
+		return error("Could not expand include path '%s'", path);
+	path = expanded;
 
 	/*
 	 * Use an absolute path as-is, but interpret relative paths
@@ -63,6 +68,7 @@ static int handle_path_include(const char *path, struct config_include_data *inc
 		inc->depth--;
 	}
 	strbuf_release(&buf);
+	free(expanded);
 	return ret;
 }
 
@@ -829,6 +835,8 @@ static int git_default_push_config(const char *var, const char *value)
 			push_default = PUSH_DEFAULT_NOTHING;
 		else if (!strcmp(value, "matching"))
 			push_default = PUSH_DEFAULT_MATCHING;
+		else if (!strcmp(value, "simple"))
+			push_default = PUSH_DEFAULT_SIMPLE;
 		else if (!strcmp(value, "upstream"))
 			push_default = PUSH_DEFAULT_UPSTREAM;
 		else if (!strcmp(value, "tracking")) /* deprecated */
@@ -837,8 +845,8 @@ static int git_default_push_config(const char *var, const char *value)
 			push_default = PUSH_DEFAULT_CURRENT;
 		else {
 			error("Malformed value for %s: %s", var, value);
-			return error("Must be one of nothing, matching, "
-				     "tracking or current.");
+			return error("Must be one of nothing, matching, simple, "
+				     "upstream or current.");
 		}
 		return 0;
 	}
@@ -1552,20 +1560,42 @@ static int section_name_match (const char *buf, const char *name)
 	return 0;
 }
 
+static int section_name_is_ok(const char *name)
+{
+	/* Empty section names are bogus. */
+	if (!*name)
+		return 0;
+
+	/*
+	 * Before a dot, we must be alphanumeric or dash. After the first dot,
+	 * anything goes, so we can stop checking.
+	 */
+	for (; *name && *name != '.'; name++)
+		if (*name != '-' && !isalnum(*name))
+			return 0;
+	return 1;
+}
+
 /* if new_name == NULL, the section is removed instead */
 int git_config_rename_section_in_file(const char *config_filename,
 				      const char *old_name, const char *new_name)
 {
 	int ret = 0, remove = 0;
 	char *filename_buf = NULL;
-	struct lock_file *lock = xcalloc(sizeof(struct lock_file), 1);
+	struct lock_file *lock;
 	int out_fd;
 	char buf[1024];
 	FILE *config_file;
 
+	if (new_name && !section_name_is_ok(new_name)) {
+		ret = error("invalid section name: %s", new_name);
+		goto out;
+	}
+
 	if (!config_filename)
 		config_filename = filename_buf = git_pathdup("config");
 
+	lock = xcalloc(sizeof(struct lock_file), 1);
 	out_fd = hold_lock_file_for_update(lock, config_filename, 0);
 	if (out_fd < 0) {
 		ret = error("could not lock config file %s", config_filename);

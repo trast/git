@@ -247,6 +247,7 @@ test_expect_success '-p handles "no changes" gracefully' '
 '
 
 test_expect_failure 'exchange two commits with -p' '
+	git checkout H &&
 	FAKE_LINES="2 1" git rebase -i -p HEAD~2 &&
 	test H = $(git cat-file commit HEAD^ | sed -ne \$p) &&
 	test G = $(git cat-file commit HEAD | sed -ne \$p)
@@ -323,7 +324,7 @@ test_expect_success 'verbose flag is heeded, even after --continue' '
 	echo resolved > file1 &&
 	git add file1 &&
 	git rebase --continue > output &&
-	grep "^ file1 |    2 +-$" output
+	grep "^ file1 | 2 +-$" output
 '
 
 test_expect_success 'multi-squash only fires up editor once' '
