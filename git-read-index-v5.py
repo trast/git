@@ -14,57 +14,44 @@
 import struct
 import binascii
 import sys
+import os.path
+import python.lib.indexlib as indexlib
 from collections import deque
 
-DIR_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
-HEADER_STRUCT = struct.Struct("!IIII")
-CRC_STRUCT = struct.Struct("!i")
-OFFSET_STRUCT = struct.Struct("!I")
-FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 
-HEADER_FORMAT = """\
-Signature: %(signature)s\t\t\tVersion: %(vnr)s
-Number of directories: %(ndir)s\tNumber of files: %(nfile)s
-Number of extensions: %(nextensions)s"""
+class CRC(object):
+    def __init__(self):
+        self.value = 0
 
-DIRECTORY_FORMAT = """\
-path: %(pathname)s flags: %(flags)s foffset: %(foffset)s
-ncr: %(ncr)s cr: %(cr)s nfiles: %(nfiles)s
-nentries: %(nentries)s objname: %(objname)s"""
+    def add(self, data):
+        """Add data into the checksum."""
 
-FILES_FORMAT = """\
-%(name)s (%(objhash)s)\nmtime: %(mtimes)s:%(mtimens)s
-mode: %(mode)s flags: %(flags)s\nstatcrc: """
+        self.value = indexlib.calculate_crc(data, self.value)
 
+    def matches(self, f):
+        """Verify a checksum from file f.
 
-class SignatureError(Exception):
-    pass
+        Read the next 4 bytes from f and return True iff they match
+        the checksum stored in this object."""
+
+        return f.read(indexlib.CRC_STRUCT.size) == \
+                indexlib.CRC_STRUCT.pack(self.value)
 
 
-class VersionError(Exception):
-    pass
-
-
-class CrcError(Exception):
-    pass
-
-
-def read_calc_crc(f, n, partialcrc=0):
-    """ Reads a chunk of data and generates the crc sum for the data. The crc
-    sum can also be combined with a crc code calculated earlier by using the
-    partialcrc parameter
+def read_struct(f, s, crc=None):
+    """ Read a struct from f and update the crc for the data (if applicable).
 
     Args:
         f: the file from which the data should be read
-        n: number of bytes to read
-        partialcrc: a earlier calculated crc, which should be taken into
-            account when calculating the crc
+        s: a struct.Struct describing the data to be read
+        crc: an optional CRC instance, updated with the data
     Returns:
-        data, crc: a tuple of the read data and the calculated crc code
+        a tuple containing the results of unpacking the data read.
     """
-    data = f.read(n)
-    crc = binascii.crc32(data, partialcrc)
-    return data, crc
+    data = f.read(s.size)
+    if crc is not None:
+        crc.add(data)
+    return s.unpack(data)
 
 
 def read_header(f):
@@ -73,61 +60,67 @@ def read_header(f):
     Args:
         f: the file from which the header should be read
     Returns:
-        A dict with all the header values
+        a dict with all the header values
     Raises:
         SignatureError: the signature of the index file is wrong
         VersionError: the version of the index file is wrong
         CrcError: the crc code doesn't match with the contents that have been
             read
     """
-    # 4 byte signature
-    (signature, partialcrc) = read_calc_crc(f, 4)
-    (readheader, partialcrc) = read_calc_crc(f,
-            HEADER_STRUCT.size, partialcrc)
-    (vnr, ndir, nfile, nextensions) = HEADER_STRUCT.unpack(readheader)
+    min_header_size = (indexlib.HEADER_V5_STRUCT.size
+            + indexlib.CRC_STRUCT.size)
+
+    if os.path.getsize(f.name) < min_header_size:
+        raise indexlib.FilesizeError("Index file smaller than expected")
+
+    crc = CRC()
+    (signature, vnr, ndir, nfile, fblockoffset, nextensions) = read_struct(f,
+            indexlib.HEADER_V5_STRUCT, crc)
 
     if signature != "DIRC":
-        raise SignatureError("Signature is not DIRC. Signature: " + signature)
+        raise indexlib.SignatureError("Signature is not DIRC. Signature: " +
+                signature)
 
     if vnr != 5:
-        raise VersionError("The index is not Version 5. Version: " + str(vnr))
+        raise indexlib.VersionError("The index is not Version 5. Version: " +
+                str(vnr))
 
     extoffsets = list()
     for i in xrange(nextensions):
-        (readoffset, partialcrc) = read_calc_crc(f,
-                CRC_STRUCT.size, partialcrc)
+        readoffset = read_struct(f,
+                indexlib.EXTENSION_OFFSET_STRUCT.size, crc)
         extoffsets.append(readoffset)
 
-    crc = f.read(CRC_STRUCT.size)
-    datacrc = CRC_STRUCT.pack(partialcrc)
-
-    if crc != datacrc:
-        raise CrcError("Wrong header crc")
+    if not crc.matches(f):
+        raise indexlib.CrcError("Wrong header crc")
 
     return dict(signature=signature, vnr=vnr, ndir=ndir, nfile=nfile,
-            nextensions=nextensions, extoffsets=extoffsets)
+            fblockoffset = fblockoffset, nextensions=nextensions,
+            extoffsets=extoffsets)
 
 
-def read_name(f, partialcrc=0):
+def read_name(f, crc=None):
     """ Read a nul terminated name from the file
 
     Args:
         f: the file from which the name should be read. The method will start
             reading from where the file pointer in that file is at the moment.
-        partialcrc: A partial crc code of earlier read data, that should be
-            taken into account.
+        crc: an optional crc instance that should be updated with the data
+            read.
     Returns:
-        name, partialcrc: The name that was read and the crc code of the data
-            that was read, taking into account a partial crc code if there is
-            any.
+        name: The name that was read
     """
     name = ""
-    (byte, partialcrc) = read_calc_crc(f, 1, partialcrc)
-    while byte != '\0':
+    while True:
+        byte = f.read(1)
+        if byte == '\0':
+            break
         name += byte
-        (byte, partialcrc) = read_calc_crc(f, 1, partialcrc)
 
-    return name, partialcrc
+    if crc is not None:
+        crc.add(name + '\0')
+
+    return name
 
 
 def read_index_entries(f, header):
@@ -141,60 +134,59 @@ def read_index_entries(f, header):
     """
     # Skip header and directory offsets
     # Header size = 24 bytes, each extension offset and dir offset is 4 bytes
-    f.seek(24 + header["nextensions"] * 4 + header["ndir"] * 4)
+    f.seek(indexlib.HEADER_V5_STRUCT.size
+            + header["nextensions"] * indexlib.EXTENSION_OFFSET_STRUCT.size
+            + header["ndir"] * indexlib.DIR_OFFSET_STRUCT.size
+            + indexlib.CRC_STRUCT.size)
 
     directories = read_dirs(f, header["ndir"])
 
     # The foffset only needs to be considered for the first directory, since
     # we read the files continously and have the file pointer always in the
     # right place. Doing so saves 2 seeks per directory.
-    f.seek(directories[0]["foffset"])
-    (readoffset, partialcrc) = read_calc_crc(f, OFFSET_STRUCT.size)
-    (offset, ) = OFFSET_STRUCT.unpack(readoffset)
-    f.seek(offset)
+    f.seek(header["fblockoffset"] + directories[0]["foffset"])
 
     files = list()
-    read_files(f, directories, 0, files)
+    read_files(f, directories, f.tell(), 0, files)
     return files
 
 
-def read_file(f, pathname):
+def read_file(f, pathname, fblockoffset):
     """ Read a single file from the index
 
     Args:
         f: the index file from which the file data should be read.
         pathname: the pathname of the file, with which the filename is
             combined to get the full path
+        fblockoffset: the offset to the file block, used for calculating the
+            crc code.
     Returns:
         A dict with all filedata
     Raises:
         CrcError: The crc code in the index file doesn't match with the crc
             code of the read data.
     """
+    crc = CRC()
     # A little cheating here in favor of simplicity and execution speed.
     # The fileoffset is only read when really needed, in the other cases
     # it's just calculated from the file position, to save on reads and
     # simplify the code.
-    partialcrc = binascii.crc32(struct.pack("!I", f.tell()))
+    crc.add(indexlib.FILE_OFFSET_STRUCT.pack(f.tell() - fblockoffset))
 
-    (filename, partialcrc) = read_name(f, partialcrc)
+    filename = read_name(f, crc)
 
-    (statdata, partialcrc) = read_calc_crc(f, FILE_DATA_STRUCT.size,
-            partialcrc)
-    (flags, mode, mtimes, mtimens,
-            statcrc, objhash) = FILE_DATA_STRUCT.unpack(statdata)
+    (flags, mode, mtimes, mtimens, statcrc, objhash) = \
+            read_struct(f, indexlib.FILE_DATA_STRUCT, crc)
 
-    datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(CRC_STRUCT.size)
-    if datacrc != crc:
-        raise CrcError("Wrong CRC for file entry: " + filename)
+    if not crc.matches(f):
+        raise indexlib.CrcError("Wrong CRC for file entry: " + filename)
 
     return dict(name=pathname + filename,
             flags=flags, mode=mode, mtimes=mtimes, mtimens=mtimens,
             statcrc=statcrc, objhash=binascii.hexlify(objhash))
 
 
-def read_files(f, directories, dirnr, files_out):
+def read_files(f, directories, fblockoffset, dirnr, files_out):
     """ Read all files from the index and combine them with their respective
     pathname. Files are read lexically ordered. The function does this
     recursively
@@ -202,6 +194,9 @@ def read_files(f, directories, dirnr, files_out):
     Args:
         f: the index file from which the files should be read
         directories: all directories that are in the index file
+        fblockoffset: the offset to the fileentries block. This is used for
+            calculating the crc code, so that the fileoffsets don't need to
+            be read.
         dirnr: The files of the dirnrth directory are read. This has to be 0
             for the initial call.
         files_out: The list into which is used to store the files. Pass a
@@ -213,12 +208,14 @@ def read_files(f, directories, dirnr, files_out):
     """
     queue = deque()
     for i in xrange(directories[dirnr]["nfiles"]):
-        queue.append(read_file(f, directories[dirnr]["pathname"]))
+        queue.append(read_file(f, directories[dirnr]["pathname"],
+            fblockoffset))
 
     while queue:
         if (len(directories) > dirnr + 1 and
                 queue[0]["name"] > directories[dirnr + 1]["pathname"]):
-            dirnr = read_files(f, directories, dirnr + 1, files_out)
+            dirnr = read_files(f, directories, fblockoffset, dirnr + 1,
+                    files_out)
         else:
             files_out.append(queue.popleft())
 
@@ -236,17 +233,14 @@ def read_dir(f):
         CrcError: The crc code in the file doesn't match with the crc code
             of the data that was read
     """
-    (pathname, partialcrc) = read_name(f)
+    crc = CRC()
+    pathname = read_name(f, crc)
 
-    (readstatdata, partialcrc) = read_calc_crc(f, DIR_DATA_STRUCT.size,
-            partialcrc)
-    (flags, foffset, cr, ncr, nsubtrees, nfiles,
-            nentries, objname) = DIR_DATA_STRUCT.unpack(readstatdata)
+    (flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname) = \
+            read_struct(f, indexlib.DIRECTORY_DATA_STRUCT, crc)
 
-    datacrc = CRC_STRUCT.pack(partialcrc)
-    crc = f.read(CRC_STRUCT.size)
-    if crc != datacrc:
-        raise CrcError("Wrong crc for directory entry: " + pathname)
+    if not crc.matches(f):
+        raise indexlib.CrcError("Wrong crc for directory entry: " + pathname)
 
     return dict(pathname=pathname, flags=flags, foffset=foffset,
         cr=cr, ncr=ncr, nsubtrees=nsubtrees, nfiles=nfiles,
@@ -270,18 +264,18 @@ def read_dirs(f, ndir):
 
 
 def print_header(header):
-    print(HEADER_FORMAT % header)
+    print(indexlib.HEADER_V5_FORMAT % header)
 
 
 def print_directories(directories):
     for d in directories:
-        print (DIRECTORY_FORMAT % d)
+        print (indexlib.DIRECTORY_FORMAT % d)
 
 
 def print_files(files, verbose=False):
     for fi in files:
         if verbose:
-            print (FILES_FORMAT % fi + hex(fi["statcrc"]))
+            print (indexlib.FILES_FORMAT % fi + hex(fi["statcrc"]))
         else:
             print fi["name"]
 
