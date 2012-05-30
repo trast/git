@@ -337,7 +337,7 @@ def write_directories(fw, paths):
     dirwritedataoffsets = dict()
     # Directory offsets relative to the start of the directory block
     beginning = fw.tell()
-    for p in sorted(paths):
+    for p in sorted(paths, key=lambda k: k + "/"):
         diroffsets.append(fw.tell() - beginning)
 
         # pathname
@@ -397,7 +397,7 @@ def write_file_data(fw, indexentries):
     dirdata = dict()
     fileoffsets = list()
     beginning = fw.tell()
-    for entry in sorted(indexentries, key=lambda k: k.pathname):
+    for entry in sorted(indexentries, key=lambda k: k.pathname + "/"):
         offset = fw.tell() - beginning
         fileoffsets.append(offset)
         write_file_entry(fw, entry, offset)
