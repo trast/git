@@ -99,9 +99,12 @@ unsigned long git_deflate_bound(git_zstream *, unsigned long);
  */
 
 #define CACHE_SIGNATURE 0x44495243	/* "DIRC" */
-struct cache_header {
+struct cache_version_header {
 	unsigned int hdr_signature;
 	unsigned int hdr_version;
+};
+
+struct cache_header_v2 {
 	unsigned int hdr_entries;
 };
 
