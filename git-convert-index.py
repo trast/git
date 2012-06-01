@@ -352,8 +352,8 @@ def write_directories(fw, paths):
         # All this fields will be filled out when the rest of the index
         # is written
         # CRC will be calculated when data is filled in
-        fw.write(indexlib.DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0, 0,
-            20 * '\0'))
+        fw.write(indexlib.DIRECTORY_DATA_STRUCT.pack(0, 0, 0, 0, 0, 0,
+            20 * '\0', 0))
         fw.write(indexlib.CRC_STRUCT.pack(0))
 
     return diroffsets, dirwritedataoffsets
@@ -434,9 +434,9 @@ def write_directory_data(fw, dirdata, dirwritedataoffsets,
 
 
         partialcrc = write_calc_crc(fw,
-                indexlib.DIRECTORY_DATA_STRUCT.pack(entry.flags, foffset,
+                indexlib.DIRECTORY_DATA_STRUCT.pack(foffset,
                 entry.cr, entry.ncr, entry.nsubtrees, entry.nfiles,
-                entry.nentries, entry.objname), partialcrc)
+                entry.nentries, entry.objname, entry.flags), partialcrc)
 
         foffset += entry.nfiles * 4
 

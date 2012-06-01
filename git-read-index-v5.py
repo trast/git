@@ -236,7 +236,7 @@ def read_dir(f):
     crc = CRC()
     pathname = read_name(f, crc)
 
-    (flags, foffset, cr, ncr, nsubtrees, nfiles, nentries, objname) = \
+    (foffset, cr, ncr, nsubtrees, nfiles, nentries, objname, flags) = \
             read_struct(f, indexlib.DIRECTORY_DATA_STRUCT, crc)
 
     if not crc.matches(f):

@@ -50,7 +50,7 @@ XTFLAGS_STRUCT = struct.Struct("!h")
 
 CRC_STRUCT = struct.Struct("!I")
 
-DIRECTORY_DATA_STRUCT = struct.Struct("!HIIIIII 20s")
+DIRECTORY_DATA_STRUCT = struct.Struct("!IIIIII 20sH")
 
 STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
 
