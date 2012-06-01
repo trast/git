@@ -1333,17 +1333,17 @@ static struct cache_entry *cache_entry_from_ondisk(struct ondisk_cache_entry *on
 {
 	struct cache_entry *ce = xmalloc(cache_entry_size(len));
 
-	ce->ce_ctime.sec = ntoh_l(ondisk->ctime.sec);
-	ce->ce_mtime.sec = ntoh_l(ondisk->mtime.sec);
+	ce->ce_ctime.sec  = ntoh_l(ondisk->ctime.sec);
+	ce->ce_mtime.sec  = ntoh_l(ondisk->mtime.sec);
 	ce->ce_ctime.nsec = ntoh_l(ondisk->ctime.nsec);
 	ce->ce_mtime.nsec = ntoh_l(ondisk->mtime.nsec);
-	ce->ce_dev   = ntoh_l(ondisk->dev);
-	ce->ce_ino   = ntoh_l(ondisk->ino);
-	ce->ce_mode  = ntoh_l(ondisk->mode);
-	ce->ce_uid   = ntoh_l(ondisk->uid);
-	ce->ce_gid   = ntoh_l(ondisk->gid);
-	ce->ce_size  = ntoh_l(ondisk->size);
-	ce->ce_flags = flags;
+	ce->ce_dev        = ntoh_l(ondisk->dev);
+	ce->ce_ino        = ntoh_l(ondisk->ino);
+	ce->ce_mode       = ntoh_l(ondisk->mode);
+	ce->ce_uid        = ntoh_l(ondisk->uid);
+	ce->ce_gid        = ntoh_l(ondisk->gid);
+	ce->ce_size       = ntoh_l(ondisk->size);
+	ce->ce_flags      = flags;
 	hashcpy(ce->sha1, ondisk->sha1);
 	memcpy(ce->name, name, len);
 	ce->name[len] = '\0';
