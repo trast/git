@@ -537,7 +537,7 @@ def read_index():
             header)
 
     treeextensiondata = dict()
-    reucextensiondata = list()
+    reucextensiondata = defaultdict(list)
     ext = r.read_without_updating_sha1(4)
 
     if ext == "TREE" or ext == "REUC":
