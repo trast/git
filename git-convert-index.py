@@ -187,7 +187,8 @@ def read_index_entries(r, header):
                 # Write the stage 1 entry to the main index, to avoid
                 # rewriting the whole index once the conflict is resolved
                 indexentries.append(entry)
-            conflictedentries[entry.pathname].append(entry)
+            else:
+                conflictedentries[entry.pathname].append(entry)
 
     return indexentries, conflictedentries, paths, files
 
@@ -379,7 +380,7 @@ def write_file_entry(fw, entry, offset):
 
     # Prepare flags
     flags = entry.flags & 0b1000000000000000
-    flags += (entry.flags & 0b0011000000000000) * 2
+    flags += (entry.flags & 0b0011000000000000)
 
     # calculate crc for stat data
     stat_crc = indexlib.calculate_crc(indexlib.STAT_DATA_CRC_STRUCT.pack(offset,
@@ -448,7 +449,7 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
     for d in dirdata:
         for c in conflictedentries:
             if c in d:
-                todo.add(d)
+                todo.add(c)
                 break
         for r in reucdata:
             if r in d:
@@ -464,15 +465,17 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
             if dirdata[t].cr == 0:
                 dirdata[t].cr = fw.tell()
 
-            dirdata[t].ncr = 1
+            dirdata[t].ncr += 1
 
-            for e in conflictedentries[t]:
-                if e.filename == entry.pathname:
-                    conflictedentries[t].remove(e)
+            for i in xrange(len(conflictedentries[t])):
+                e = conflictedentries[t].pop()
+                if entry.pathname in e.filename:
                     entries.append(e)
+                else:
+                    conflictedentries[t].append(e)
             
             if entry.pathname == "":
-                pathname = ""
+                pathname = entry.filename + "\0"
             else:
                 pathname = entry.pathname + "/" + entry.filename + "\0"
 
@@ -487,7 +490,6 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
                     e.mode, e.sha1), crc)
 
             fw.write(indexlib.CRC_STRUCT.pack(crc))
-
 
         for r in reucdata[t]:
             crc = write_calc_crc(fw, r.path + "\0")
