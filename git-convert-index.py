@@ -483,7 +483,7 @@ def write_conflicted_data(fw, conflictedentries, reucdata, dirdata):
             crc = write_calc_crc(fw,
                     indexlib.NR_CONFLICT_STRUCT.pack(len(entries)), crc)
             conflicted = 0b1000000000000000
-            for e in entries:
+            for e in sorted(entries, key=lambda k: k.flags):
                 flags = (e.flags & 0b0011000000000000) << 1
                 flags |= conflicted
                 crc = write_calc_crc(fw, indexlib.CONFLICT_STRUCT.pack(flags,
