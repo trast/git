@@ -159,38 +159,10 @@ static int ce_modified_check_fs(struct cache_entry *ce, struct stat *st)
 	return 0;
 }
 
-static int ce_match_stat_basic(struct cache_entry *ce, struct stat *st)
+static int ce_match_stat_basic_v2(struct cache_entry *ce,
+				struct stat *st,
+				int changed)
 {
-	unsigned int changed = 0;
-
-	if (ce->ce_flags & CE_REMOVE)
-		return MODE_CHANGED | DATA_CHANGED | TYPE_CHANGED;
-
-	switch (ce->ce_mode & S_IFMT) {
-	case S_IFREG:
-		changed |= !S_ISREG(st->st_mode) ? TYPE_CHANGED : 0;
-		/* We consider only the owner x bit to be relevant for
-		 * "mode changes"
-		 */
-		if (trust_executable_bit &&
-		    (0100 & (ce->ce_mode ^ st->st_mode)))
-			changed |= MODE_CHANGED;
-		break;
-	case S_IFLNK:
-		if (!S_ISLNK(st->st_mode) &&
-		    (has_symlinks || !S_ISREG(st->st_mode)))
-			changed |= TYPE_CHANGED;
-		break;
-	case S_IFGITLINK:
-		/* We ignore most of the st_xxx fields for gitlinks */
-		if (!S_ISDIR(st->st_mode))
-			changed |= TYPE_CHANGED;
-		else if (ce_compare_gitlink(ce))
-			changed |= DATA_CHANGED;
-		return changed;
-	default:
-		die("internal error: ce_mode is %o", ce->ce_mode);
-	}
 	if (ce->ce_mtime.sec != (unsigned int)st->st_mtime)
 		changed |= MTIME_CHANGED;
 	if (trust_ctime && ce->ce_ctime.sec != (unsigned int)st->st_ctime)
@@ -228,6 +200,52 @@ static int ce_match_stat_basic(struct cache_entry *ce, struct stat *st)
 			changed |= DATA_CHANGED;
 	}
 
+	return changed;
+}
+
+static int ce_match_stat_basic(struct cache_entry *ce, struct stat *st)
+{
+	unsigned int changed = 0;
+
+	if (ce->ce_flags & CE_REMOVE)
+		return MODE_CHANGED | DATA_CHANGED | TYPE_CHANGED;
+
+	switch (ce->ce_mode & S_IFMT) {
+	case S_IFREG:
+		changed |= !S_ISREG(st->st_mode) ? TYPE_CHANGED : 0;
+		/* We consider only the owner x bit to be relevant for
+		 * "mode changes"
+		 */
+		if (trust_executable_bit &&
+		    (0100 & (ce->ce_mode ^ st->st_mode)))
+			changed |= MODE_CHANGED;
+		break;
+	case S_IFLNK:
+		if (!S_ISLNK(st->st_mode) &&
+		    (has_symlinks || !S_ISREG(st->st_mode)))
+			changed |= TYPE_CHANGED;
+		break;
+	case S_IFGITLINK:
+		/* We ignore most of the st_xxx fields for gitlinks */
+		if (!S_ISDIR(st->st_mode))
+			changed |= TYPE_CHANGED;
+		else if (ce_compare_gitlink(ce))
+			changed |= DATA_CHANGED;
+		return changed;
+	default:
+		die("internal error: ce_mode is %o", ce->ce_mode);
+	}
+
+	if (the_index.version != 5) {
+	 	changed = ce_match_stat_basic_v2(ce, st, changed);
+	} else {
+		if (ce->ce_mtime.sec != (unsigned int)st->st_mtime)
+			changed |= MTIME_CHANGED;
+#ifdef USE_NSEC
+		if (ce->ce_mtime.nsec != ST_MTIME_NSEC(*st))
+			changed |= MTIME_CHANGED;
+#endif
+	}
 	return changed;
 }
 
