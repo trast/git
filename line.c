@@ -211,6 +211,8 @@ void line_log_data_init(struct line_log_data *r)
 static void line_log_data_clear(struct line_log_data *r)
 {
 	range_set_release(&r->ranges);
+	if (r->pair)
+		diff_free_filepair(r->pair);
 }
 
 static void free_line_log_datas(struct line_log_data *r)
@@ -1006,6 +1008,9 @@ static void dump_diff_hacky_one(struct rev_info *rev, struct line_log_data *rang
 			print_line(prefix, ' ', t_cur, t_ends, pair->two->data,
 				   c_plain, c_reset);
 	}
+
+	free(p_ends);
+	free(t_ends);
 }
 
 static void dump_diff_hacky(struct rev_info *rev, struct line_log_data *range)
@@ -1069,6 +1074,25 @@ static int process_diff_filepair(struct rev_info *rev,
 	return ((*diff_out)->parent.nr > 0);
 }
 
+static struct diff_filepair *diff_filepair_dup(struct diff_filepair *pair)
+{
+	struct diff_filepair *new = xmalloc(sizeof(struct diff_filepair));
+	new->one = pair->one;
+	new->two = pair->two;
+	new->one->count++;
+	new->two->count++;
+	return new;
+}
+
+static void free_diffqueues(int n, struct diff_queue_struct *dq)
+{
+	int i, j;
+	for (i = 0; i < n; i++)
+		for (j = 0; j < dq[i].nr; j++)
+			diff_free_filepair(dq[i].queue[j]);
+	free(dq);
+}
+
 static int process_all_files(struct line_log_data **range_out,
 			     struct rev_info *rev,
 			     struct diff_queue_struct *queue,
@@ -1087,7 +1111,7 @@ static int process_all_files(struct line_log_data **range_out,
 			while (rg && strcmp(rg->spec->path, queue->queue[i]->two->path))
 				rg = rg->next;
 			assert(rg);
-			rg->pair = queue->queue[i];
+			rg->pair = diff_filepair_dup(queue->queue[i]);
 			memcpy(&rg->diff, pairdiff, sizeof(struct diff_ranges));
 		}
 	}
@@ -1157,6 +1181,9 @@ static int process_ranges_merge_commit(struct rev_info *rev, struct commit *comm
 			commit->parents = xmalloc(sizeof(struct commit_list));
 			commit->parents->item = parents[i];
 			commit->parents->next = NULL;
+			free(parents);
+			free(cand);
+			free_diffqueues(nparents, diffqueues);
 			/* NEEDSWORK leaking like a sieve */
 			return 0;
 		}
@@ -1171,6 +1198,9 @@ static int process_ranges_merge_commit(struct rev_info *rev, struct commit *comm
 	}
 
 	clear_commit_line_range(rev, commit);
+	free(parents);
+	free(cand);
+	free_diffqueues(nparents, diffqueues);
 	return 1;
 
 	/* NEEDSWORK evil merge detection stuff */
