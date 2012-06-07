@@ -19,6 +19,7 @@
 #include "remote.h"
 #include "string-list.h"
 #include "parse-options.h"
+#include "line.h"
 #include "branch.h"
 #include "streaming.h"
 #include "version.h"
@@ -37,6 +38,12 @@ static const char * const builtin_log_usage[] = {
 	"git log [<options>] [<since>..<until>] [[--] <path>...]\n"
 	"   or: git show [options] <object>...",
 	NULL
+};
+
+struct line_opt_callback_data {
+	struct rev_info *rev;
+	const char *prefix;
+	struct line_log_data *ranges, *cur_range;
 };
 
 static int parse_decoration_style(const char *var, const char *value)
@@ -73,6 +80,40 @@ static int decorate_callback(const struct option *opt, const char *arg, int unse
 	return 0;
 }
 
+static int log_line_range_callback(const struct option *option, const char *arg, int unset)
+{
+	struct line_opt_callback_data *data = option->value;
+	struct line_log_data *r;
+	const char *name_start, *range_arg, *full_path;
+	const char *prefix = data->prefix;
+
+	if (!arg)
+		return -1;
+
+	name_start = skip_range_arg(arg);
+	if (!name_start || *name_start != ':')
+		die("-L argument '%s' not of the form start,end:file", arg);
+
+	range_arg = xstrndup(arg, name_start-arg);
+	name_start++;
+
+	full_path = prefix_path(prefix, prefix ? strlen(prefix) : 0,
+				name_start);
+
+	r = xmalloc(sizeof(struct line_log_data));
+	line_log_data_init(r);
+	if (data->cur_range)
+		data->cur_range->next = r;
+	else
+		data->ranges = r;
+	data->cur_range = r;
+	r->spec = alloc_filespec(full_path);
+	ALLOC_GROW(r->args, r->arg_nr+1, r->arg_alloc);
+	r->args[r->arg_nr++] = range_arg;
+	data->rev->line_level_traverse = 1;
+	return 0;
+}
+
 static void cmd_log_init_defaults(struct rev_info *rev)
 {
 	if (fmt_pretty)
@@ -95,14 +136,22 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 {
 	struct userformat_want w;
 	int quiet = 0, source = 0;
+	static struct line_opt_callback_data line_cb = {0};
+	static int full_line_diff;
 
 	const struct option builtin_log_options[] = {
 		OPT_BOOLEAN(0, "quiet", &quiet, "suppress diff output"),
 		OPT_BOOLEAN(0, "source", &source, "show source"),
 		{ OPTION_CALLBACK, 0, "decorate", NULL, NULL, "decorate options",
 		  PARSE_OPT_OPTARG, decorate_callback},
+		OPT_CALLBACK('L', NULL, &line_cb, "n,m:file",
+			     "Process line range n,m in file, counting from 1",
+			     log_line_range_callback),
 		OPT_END()
 	};
+
+	line_cb.rev = rev;
+	line_cb.prefix = prefix;
 
 	argc = parse_options(argc, argv, prefix,
 			     builtin_log_options, builtin_log_usage,
@@ -151,6 +200,10 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 		rev->show_decorations = 1;
 		load_ref_decorations(decoration_style);
 	}
+
+	if (rev->line_level_traverse)
+		line_log_init(rev, line_cb.ranges);
+
 	setup_pager();
 }
 
