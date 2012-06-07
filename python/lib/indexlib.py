@@ -52,7 +52,7 @@ CRC_STRUCT = struct.Struct("!I")
 
 DIRECTORY_DATA_STRUCT = struct.Struct("!IIIIII 20sH")
 
-STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIIII")
+STAT_DATA_CRC_STRUCT = struct.Struct("!IIIIIII")
 
 FILE_DATA_STRUCT = struct.Struct("!HHIII 20s")
 

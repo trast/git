@@ -383,9 +383,9 @@ def write_file_entry(fw, entry, offset):
     flags += (entry.flags & 0b0011000000000000)
 
     # calculate crc for stat data
-    stat_crc = indexlib.calculate_crc(indexlib.STAT_DATA_CRC_STRUCT.pack(offset,
-        entry.ctimesec, entry.ctimensec, entry.ino,
-        entry.filesize, entry.dev, entry.uid, entry.gid))
+    stat_crc = indexlib.calculate_crc(indexlib.STAT_DATA_CRC_STRUCT.pack(entry.ctimesec,
+        entry.ctimensec, entry.ino, entry.filesize, entry.dev, entry.uid,
+        entry.gid))
 
     stat_data = indexlib.FILE_DATA_STRUCT.pack(flags, entry.mode,
             entry.mtimesec, entry.mtimensec, stat_crc, entry.sha1)
