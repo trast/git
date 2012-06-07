@@ -9,6 +9,7 @@
 #include "string-list.h"
 #include "color.h"
 #include "gpg-interface.h"
+#include "line.h"
 
 struct decoration name_decoration = { "object names" };
 
