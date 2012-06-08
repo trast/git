@@ -473,7 +473,8 @@ const char *parse_loc(const char *spec, nth_line_fn_t nth_line,
 	 * $ is a synonym for "the end of the file".
 	 */
 	if (spec[0] == '$') {
-		*ret = lines;
+		if (ret)
+			*ret = lines;
 		return spec + 1;
 	}
 
