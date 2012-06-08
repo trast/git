@@ -289,18 +289,10 @@ static void line_log_data_sort (struct line_log_data *list)
 	}
 }
 
-/* In the diff handling, p=parent and t=target. */
-
 struct collect_diff_cbdata {
-	long plno, tlno;
 	struct diff_ranges *diff;
 };
 
-/*
- * This callback being called means:
- * - lines [tlno,same] are from parent
- * - line tlno in target corresponds to plno in parent
- */
 static int collect_diff_cb (long start_a, long count_a,
 			    long start_b, long count_b,
 			    void *data)
@@ -311,9 +303,6 @@ static int collect_diff_cb (long start_a, long count_a,
 		range_set_append(&d->diff->parent, start_a, start_a + count_a);
 	if (count_b >= 0)
 		range_set_append(&d->diff->target, start_b, start_b + count_b);
-
-	d->plno = start_a + count_a;
-	d->tlno = start_b + count_b;
 
 	return 0;
 }
