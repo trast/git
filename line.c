@@ -215,7 +215,7 @@ static void line_log_data_clear(struct line_log_data *r)
 		diff_free_filepair(r->pair);
 }
 
-static void free_line_log_datas(struct line_log_data *r)
+static void free_line_log_data(struct line_log_data *r)
 {
 	while (r) {
 		struct line_log_data *next = r->next;
@@ -344,7 +344,7 @@ static void dump_range_set (struct range_set *rs, const char *desc)
 		printf("\t[%ld,%ld]\n", rs->ranges[i].start, rs->ranges[i].end);
 }
 
-static void dump_line_log_datas (struct line_log_data *r)
+static void dump_line_log_data (struct line_log_data *r)
 {
 	char buf[4096];
 	while (r) {
@@ -795,7 +795,7 @@ static void add_line_range(struct rev_info *revs, struct commit *commit,
 	old = lookup_decoration(&revs->line_log_data, &commit->object);
 	if (old && range) {
 		new = line_log_data_merge(old, range);
-		free_line_log_datas(old);
+		free_line_log_data(old);
 	} else if (range)
 		new = line_log_data_copy(range);
 
@@ -809,7 +809,7 @@ static void clear_commit_line_range(struct rev_info *revs, struct commit *commit
 	r = lookup_decoration(&revs->line_log_data, &commit->object);
 	if (!r)
 		return;
-	free_line_log_datas(r);
+	free_line_log_data(r);
 	add_decoration(&revs->line_log_data, &commit->object, NULL);
 }
 
