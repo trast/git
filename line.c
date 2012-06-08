@@ -858,16 +858,12 @@ static void queue_diffs(struct diff_options *opt,
 	void *tree1 = NULL, *tree2 = NULL;
 	struct tree_desc desc1, desc2;
 
-	/*
-	 * Compose up two trees, for root commit, we make up a empty tree.
-	 */
 	assert(commit);
 	load_tree_desc(&desc2, &tree2, commit->tree->object.sha1);
-	if (parent) {
+	if (parent)
 		load_tree_desc(&desc1, &tree1, parent->tree->object.sha1);
-	} else {
+	else
 		init_tree_desc(&desc1, "", 0);
-	}
 
 	DIFF_QUEUE_CLEAR(&diff_queued_diff);
 	diff_tree(&desc1, &desc2, "", opt);
