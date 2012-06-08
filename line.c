@@ -812,14 +812,32 @@ static struct line_log_data *lookup_line_range(struct rev_info *revs,
 	return ret;
 }
 
-void line_log_init(struct rev_info *rev, struct line_log_data *r)
+void line_log_init(struct rev_info *rev, struct line_log_data *range)
 {
 	struct commit *commit = NULL;
 
 	commit = check_single_commit(rev);
-	parse_lines(commit, r);
+	parse_lines(commit, range);
+	add_line_range(rev, commit, range);
 
-	add_line_range(rev, commit, r);
+	if (!rev->diffopt.detect_rename) {
+		int i, count = 0;
+		struct line_log_data *r = range;
+		const char **paths;
+		while (r) {
+			count++;
+			r = r->next;
+		}
+		paths = xmalloc((count+1)*sizeof(char *));
+		r = range;
+		for (i = 0; i < count; i++) {
+			paths[i] = xstrdup(r->spec->path);
+			r = r->next;
+		}
+		paths[count] = NULL;
+		init_pathspec(&rev->diffopt.pathspec, paths);
+		free(paths);
+	}
 }
 
 static void load_tree_desc(struct tree_desc *desc, void **tree,
