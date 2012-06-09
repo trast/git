@@ -1081,6 +1081,9 @@ static int process_diff_filepair(struct rev_info *rev,
 	diff_ranges_init(&diff);
 	collect_diff(&file_parent, &file_target, &diff);
 
+	/* NEEDSWORK should apply some heuristics to prevent mismatches */
+	rg->spec->path = xstrdup(pair->one->path);
+
 	range_set_init(&tmp, 0);
 	range_set_map_across_diff(&tmp, &rg->ranges, &diff, diff_out);
 	range_set_release(&rg->ranges);
