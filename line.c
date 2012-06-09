@@ -1003,7 +1003,7 @@ static void dump_diff_hacky_one(struct rev_info *rev, struct line_log_data *rang
 			for (k = diff->parent.ranges[j].start; k < diff->parent.ranges[j].end; k++)
 				print_line(prefix, '-', k, p_ends, pair->one->data,
 					   c_old, c_reset);
-			for (; t_cur < diff->target.ranges[j].end; t_cur++)
+			for (; t_cur < diff->target.ranges[j].end && t_cur < t_end; t_cur++)
 				print_line(prefix, '+', t_cur, t_ends, pair->two->data,
 					   c_new, c_reset);
 			j++;
