@@ -987,8 +987,19 @@ static void dump_diff_hacky_one(struct rev_info *rev, struct line_log_data *rang
 		 * the line numbers of the first/last hunk(s) that
 		 * fall in this range.
 		 */
-		p_start = diff->parent.ranges[j].start - (diff->target.ranges[j].start-t_start);
-		p_end = diff->parent.ranges[j_last].end + (t_end-diff->target.ranges[j_last].end);
+		if (t_start < diff->target.ranges[j].start)
+			p_start = diff->parent.ranges[j].start - (diff->target.ranges[j].start-t_start);
+		else
+			p_start = diff->parent.ranges[j].start;
+		if (t_end > diff->target.ranges[j_last].end)
+			p_end = diff->parent.ranges[j_last].end + (t_end-diff->target.ranges[j_last].end);
+		else
+			p_end = diff->parent.ranges[j_last].end;
+
+		if (!p_start && !p_end) {
+			p_start = -1;
+			p_end = -1;
+		}
 
 		/* Now output a diff hunk for this range */
 		printf("%s%s@@ -%ld,%ld +%ld,%ld @@%s\n",
