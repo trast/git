@@ -175,7 +175,7 @@ def read_index_entries(r, header):
         entry = read_entry(r, header)
 
         for p in indexlib.get_sub_paths(entry.pathname):
-            paths.add(entry.pathname)
+            paths.add(p)
         files.append(entry.filename)
 
         stage = (entry.flags & 0b0011000000000000) / 0b001000000000000
