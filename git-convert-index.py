@@ -228,7 +228,7 @@ def read_tree_extensiondata(r):
         listsize += 1
 
         if entry_count != "-1":
-            sha1 = binascii.hexlify(r.read(20))
+            sha1 = r.read(20)
             read += 20
         else:
             sha1 = "invalid"
