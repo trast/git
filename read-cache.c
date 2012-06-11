@@ -203,6 +203,55 @@ static int ce_match_stat_basic_v2(struct cache_entry *ce,
 	return changed;
 }
 
+static int match_stat_crc(struct stat *st, uint32_t expected_crc)
+{
+	uint32_t stat_crc = 0;
+	uint32_t *stat = xmalloc(sizeof(uint32_t));
+	unsigned int ctimens = 0;
+
+	*stat = htonl(st->st_ctime);
+	stat_crc = crc32(0, (Bytef*)stat, 4);
+#ifdef USE_NSEC
+	ctimens = ce->ce_ctime.nsec
+#endif
+	*stat = htonl(ctimens);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(st->st_ino);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(st->st_size);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(st->st_dev);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(st->st_uid);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(st->st_gid);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+
+	return stat_crc == expected_crc;
+}
+static int ce_match_stat_basic_v5(struct cache_entry *ce,
+				struct stat *st,
+				int changed)
+{
+
+	if (ce->ce_mtime.sec != (unsigned int)st->st_mtime)
+		changed |= MTIME_CHANGED;
+#ifdef USE_NSEC
+	if (ce->ce_mtime.nsec != ST_MTIME_NSEC(*st))
+		changed |= MTIME_CHANGED;
+#endif
+	if (!match_stat_crc(st, ce->ce_stat_crc)) {
+		changed |= OWNER_CHANGED;
+		changed |= INODE_CHANGED;
+	}
+	/* Racily smudged entry? */
+	if (!ce->ce_mtime.sec && !ce->ce_mtime.nsec) {
+		if (!is_empty_blob_sha1(ce->sha1))
+			changed |= DATA_CHANGED;
+	}
+	return changed;
+}
+
 static int ce_match_stat_basic(struct cache_entry *ce, struct stat *st)
 {
 	unsigned int changed = 0;
@@ -239,12 +288,7 @@ static int ce_match_stat_basic(struct cache_entry *ce, struct stat *st)
 	if (the_index.version != 5) {
 	 	changed = ce_match_stat_basic_v2(ce, st, changed);
 	} else {
-		if (ce->ce_mtime.sec != (unsigned int)st->st_mtime)
-			changed |= MTIME_CHANGED;
-#ifdef USE_NSEC
-		if (ce->ce_mtime.nsec != ST_MTIME_NSEC(*st))
-			changed |= MTIME_CHANGED;
-#endif
+		changed = ce_match_stat_basic_v5(ce, st, changed);
 	}
 	return changed;
 }
@@ -415,6 +459,7 @@ int df_name_compare(const char *name1, int len1, int mode1,
 
 int cache_name_compare(const char *name1, int flags1, const char *name2, int flags2)
 {
+	/* TODO: This possibly can be replaced with something faster */
 	int len1 = flags1 & CE_NAMEMASK;
 	int len2 = flags2 & CE_NAMEMASK;
 	int len = len1 < len2 ? len1 : len2;
@@ -1248,6 +1293,42 @@ struct ondisk_cache_entry_extended {
 	char name[FLEX_ARRAY]; /* more */
 };
 
+struct ondisk_cache_entry_v5 {
+	unsigned short flags;
+	unsigned short mode;
+	struct cache_time mtime;
+	int stat_crc;
+	unsigned char sha1[20];
+};
+
+struct ondisk_directory_entry {
+	unsigned int foffset;
+	unsigned int cr;
+	unsigned int ncr;
+	unsigned int nsubtrees;
+	unsigned int nfiles;
+	unsigned int nentries;
+	unsigned char sha1[20];
+	unsigned short flags;
+};
+
+struct entry_queue {
+	struct entry_queue *next;
+	struct cache_entry *ce;
+};
+
+struct conflict_queue {
+	struct conflict_queue *next;
+	struct conflict_entry *ce;
+};
+
+
+struct ondisk_conflict_part {
+	unsigned short flags;
+	unsigned short entry_mode;
+	unsigned char sha1[20];
+};
+
 /* These are only used for v3 or lower */
 #define align_flex_name(STRUCT,len) ((offsetof(struct STRUCT,name) + (len) + 8) & ~7)
 #define ondisk_cache_entry_size(len) align_flex_name(ondisk_cache_entry,len)
@@ -1256,6 +1337,17 @@ struct ondisk_cache_entry_extended {
 			    ondisk_cache_entry_extended_size(ce_namelen(ce)) : \
 			    ondisk_cache_entry_size(ce_namelen(ce)))
 
+static int check_crc32(int initialcrc,
+			void *data,
+			size_t len,
+			unsigned int expected_crc)
+{
+	int crc;
+
+	crc = crc32(initialcrc, (Bytef*)data, len);
+	return crc == expected_crc;
+}
+
 static int verify_hdr_version(struct cache_version_header *hdr, unsigned long size)
 {
 	int hdr_version;
@@ -1263,7 +1355,7 @@ static int verify_hdr_version(struct cache_version_header *hdr, unsigned long si
 	if (hdr->hdr_signature != htonl(CACHE_SIGNATURE))
 		return error("bad signature");
 	hdr_version = ntohl(hdr->hdr_version);
-	if (hdr_version < 2 || 4 < hdr_version)
+	if (hdr_version < 2 || 5 < hdr_version)
 		return error("bad index version %d", hdr_version);
 	return 0;
 }
@@ -1278,6 +1370,24 @@ static int verify_hdr_v2(struct cache_version_header *hdr, unsigned long size)
 	git_SHA1_Final(sha1, &c);
 	if (hashcmp(sha1, (unsigned char *)hdr + size - 20))
 		return error("bad index file sha1 signature");
+	return 0;
+}
+
+static int verify_hdr_v5(void *mmap)
+{
+	uint32_t* filecrc;
+	unsigned int header_size_v5;
+	struct cache_version_header *hdr;
+	struct cache_header_v5 *hdr_v5;
+
+	hdr = mmap;
+	hdr_v5 = mmap + sizeof(*hdr);
+	/* Size of the header + the size of the extensionoffsets */
+	header_size_v5 = sizeof(*hdr_v5) + hdr_v5->hdr_nextension * 4;
+	/* Initialize crc */
+	filecrc = mmap + sizeof(*hdr) + header_size_v5;
+	if (!check_crc32(0, hdr, sizeof(*hdr) + header_size_v5, ntohl(*filecrc)))
+		return error("bad index file header crc signature");
 	return 0;
 }
 
@@ -1350,6 +1460,113 @@ static struct cache_entry *cache_entry_from_ondisk(struct ondisk_cache_entry *on
 	return ce;
 }
 
+static struct cache_entry *cache_entry_from_ondisk_v5(struct ondisk_cache_entry_v5 *ondisk,
+						   struct directory_entry *de,
+						   char *name,
+						   size_t len)
+{
+	struct cache_entry *ce = xmalloc(cache_entry_size(len + de->de_pathlen));
+	int flags, flaglen;
+
+	flags = ntoh_s(ondisk->flags);
+	ce->ce_ctime.sec  = 0;
+	ce->ce_mtime.sec  = ntoh_l(ondisk->mtime.sec);
+	ce->ce_ctime.nsec = 0;
+	ce->ce_mtime.nsec = ntoh_l(ondisk->mtime.nsec);
+	ce->ce_dev        = 0;
+	ce->ce_ino        = 0;
+	ce->ce_mode       = ntoh_s(ondisk->mode);
+	ce->ce_uid        = 0;
+	ce->ce_gid        = 0;
+	ce->ce_size       = 0;
+	if (de->de_pathlen + len >= CE_NAMEMASK)
+		flaglen = CE_NAMEMASK;
+	else
+		flaglen = de->de_pathlen + len;
+	ce->ce_flags      = 0;
+	ce->ce_flags     |= flaglen;
+	ce->ce_flags     |= flags & CE_STAGEMASK;
+	ce->ce_flags     |= flags & CE_VALID;
+	if (ce->ce_flags | CE_INTENTTOADD_V5)
+		ce->ce_flags |= flags & CE_INTENTTOADD_V5 << 15;
+	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
+		ce->ce_flags |= flags & CE_SKIPWORKTREE_V5 << 18;
+	ce->ce_stat_crc   = ntoh_l(ondisk->stat_crc);
+	hashcpy(ce->sha1, ondisk->sha1);
+	memcpy(ce->name, de->pathname, de->de_pathlen);
+	memcpy(ce->name + de->de_pathlen, name, len);
+	ce->name[len + de->de_pathlen] = '\0';
+	return ce;
+}
+
+static struct directory_entry *directory_entry_from_ondisk(struct ondisk_directory_entry *ondisk,
+						   const char *name,
+						   size_t len)
+{
+	struct directory_entry *de = xmalloc(directory_entry_size(len));
+
+
+	memcpy(de->pathname, name, len);
+	de->pathname[len] = '\0';
+	de->de_flags      = ntoh_s(ondisk->flags);
+	de->de_foffset    = ntoh_l(ondisk->foffset);
+	de->de_cr         = ntoh_l(ondisk->cr);
+	de->de_ncr        = ntoh_l(ondisk->ncr);
+	de->de_nsubtrees  = ntoh_l(ondisk->nsubtrees);
+	de->de_nfiles     = ntoh_l(ondisk->nfiles);
+	de->de_nentries   = ntoh_l(ondisk->nentries);
+	de->de_pathlen    = len;
+	hashcpy(de->sha1, ondisk->sha1);
+	return de;
+}
+
+static struct conflict_part *conflict_part_from_ondisk(struct ondisk_conflict_part *ondisk)
+{
+	struct conflict_part *cp = xmalloc(sizeof(struct conflict_part));
+
+	cp->flags      = ntoh_s(ondisk->flags >> 1) & CE_STAGEMASK;
+	cp->entry_mode = ntoh_s(ondisk->entry_mode);
+	hashcpy(cp->sha1, ondisk->sha1);
+	return cp;
+}
+
+static struct cache_entry *convert_conflict_part(struct conflict_part *cp,
+						char * name,
+						unsigned int len)
+{
+
+	struct cache_entry *ce = xmalloc(cache_entry_size(len));
+	int flaglen;
+
+	ce->ce_ctime.sec  = 0;
+	ce->ce_mtime.sec  = 0;
+	ce->ce_ctime.nsec = 0;
+	ce->ce_mtime.nsec = 0;
+	ce->ce_dev        = 0;
+	ce->ce_ino        = 0;
+	ce->ce_mode       = cp->entry_mode;
+	ce->ce_uid        = 0;
+	ce->ce_gid        = 0;
+	ce->ce_size       = 0;
+	if (len >= CE_NAMEMASK)
+		flaglen = CE_NAMEMASK;
+	else
+		flaglen = len;
+	ce->ce_flags      = 0;
+	ce->ce_flags     |= flaglen;
+	ce->ce_flags     |= cp->flags & CE_STAGEMASK;
+	ce->ce_flags     |= cp->flags & CE_VALID;
+	if (ce->ce_flags | CE_INTENTTOADD_V5)
+		ce->ce_flags |= cp->flags & CE_INTENTTOADD_V5 << 15;
+	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
+		ce->ce_flags |= cp->flags & CE_SKIPWORKTREE_V5 << 18;
+	ce->ce_stat_crc   = 0;
+	hashcpy(ce->sha1, cp->sha1);
+	memcpy(ce->name, name, len);
+	ce->name[len] = '\0';
+	return ce;
+}
+
 /*
  * Adjacent cache entries tend to share the leading paths, so it makes
  * sense to only store the differences in later entries.  In the v4
@@ -1417,7 +1634,246 @@ static struct cache_entry *create_from_disk(struct ondisk_cache_entry *ondisk,
 	return ce;
 }
 
-void read_index_v2(struct index_state *istate, struct stat st, void *mmap, int mmap_size)
+static struct directory_entry *read_directories_v5(unsigned long *dir_offset,
+				unsigned int ndir,
+				void *mmap,
+				int mmap_size)
+{
+	int i;
+	uint32_t *filecrc;
+	struct directory_entry *entries = NULL;
+	struct directory_entry *current = NULL;
+
+	for (i = 0; i < ndir; i++) {
+		struct ondisk_directory_entry *disk_de;
+		struct directory_entry *de;
+		unsigned int data_len; 
+		unsigned int len;
+		char *name;
+
+		name = (char *)mmap + *dir_offset;
+		len = strlen(name);
+		disk_de = (struct ondisk_directory_entry *)
+				((char *)mmap + *dir_offset + len + 1);
+		de = directory_entry_from_ondisk(disk_de, name, len);
+
+		if (entries == NULL) {
+			entries = de;
+			current = de;
+		} else {
+			current->next = de;
+			current = current->next;
+			current->next = NULL;
+		}
+
+		/* Length of pathname + nul byte for termination + size of
+		 * members of ondisk_directory_entry. (Just using the size
+		 * of the stuct doesn't work, because there may be padding
+		 * bytes for the struct)
+		 */
+		data_len = len + 1
+			+ sizeof(disk_de->flags)
+			+ sizeof(disk_de->foffset)
+			+ sizeof(disk_de->cr)
+			+ sizeof(disk_de->ncr)
+			+ sizeof(disk_de->nsubtrees)
+			+ sizeof(disk_de->nfiles)
+			+ sizeof(disk_de->nentries)
+			+ sizeof(disk_de->sha1);
+
+		filecrc = mmap + *dir_offset + data_len;
+		if (!check_crc32(0, mmap + *dir_offset, data_len, ntoh_l(*filecrc)))
+			goto unmap;
+
+		*dir_offset += data_len + 4; /* crc code */
+	}
+
+	return entries;
+unmap:
+	munmap(mmap, mmap_size);
+	die("directory crc doesn't match for '%s'", current->pathname);
+}
+
+static struct cache_entry *read_entry_v5(struct directory_entry *de,
+			unsigned long *entry_offset,
+			void *mmap, 
+			unsigned long mmap_size,
+			unsigned int *foffsetblock)
+{
+	int len;
+	char *name;
+	uint32_t foffsetblockcrc;
+	uint32_t *filecrc;
+	struct cache_entry *ce;
+	struct ondisk_cache_entry_v5 *disk_ce;
+
+	name = (char *)mmap + *entry_offset;
+	len = strlen(name);
+	disk_ce = (struct ondisk_cache_entry_v5 *)
+			((char *)mmap + *entry_offset + len + 1);
+	ce = cache_entry_from_ondisk_v5(disk_ce, de, name, len);
+	filecrc = mmap + *entry_offset + len + 1 + sizeof(*disk_ce);
+	foffsetblockcrc = crc32(0, (Bytef*)mmap + *foffsetblock, 4);
+	if (!check_crc32(foffsetblockcrc,
+			mmap + *entry_offset, len + 1 + sizeof(*disk_ce),
+			ntoh_l(*filecrc)))
+		goto unmap;
+	*entry_offset += len + 1 + sizeof(*disk_ce) + 4;
+	return ce;
+unmap:
+	munmap(mmap, mmap_size);
+	die("file crc doesn't match for '%s'", ce->name);
+}
+
+static struct directory_entry *read_entries_v5(struct index_state *istate,
+					struct directory_entry *de,
+					unsigned long *entry_offset,
+					void *mmap,
+					unsigned long mmap_size,
+					int *nr,
+					unsigned int *foffsetblock,
+					int something_in_queue)
+{
+	struct entry_queue *queue, *current;
+	struct conflict_queue *conflict_queue, *conflict_current;
+	unsigned int croffset;
+	int i;
+
+
+	conflict_queue = xmalloc(sizeof(struct conflict_queue));
+	conflict_current = conflict_queue;
+	conflict_current->ce = NULL;
+	conflict_current->next = NULL;
+	croffset = de->de_cr;
+	for (i = 0; i < de->de_ncr; i++) {
+		struct conflict_entry *ce;
+		struct conflict_part *cp_current;
+		unsigned int len;
+		unsigned int *nfileconflicts;
+		char * name;
+		int k;
+
+		cp_current = NULL;
+		name = (char *)mmap + croffset;
+		len = strlen(name);
+		croffset += len + 1;
+		nfileconflicts = mmap + croffset;
+		croffset += 4;
+
+		ce = xmalloc(conflict_entry_size(len + de->de_pathlen));
+		memcpy(ce->name, de->pathname, de->de_pathlen);
+		memcpy(ce->name, name, len);
+		ce->name[de->de_pathlen + len] = '\0';
+		ce->namelen = de->de_pathlen + len;
+		ce->nfileconflicts = ntoh_l(*nfileconflicts);
+		ce->entries = NULL;
+		for (k = 0; k < ce->nfileconflicts; k++) {
+			struct ondisk_conflict_part *ondisk;
+			struct conflict_part *cp;
+			ondisk = mmap + croffset;
+			cp = conflict_part_from_ondisk(ondisk);
+			cp->next = NULL;
+			if (!cp_current) {
+				ce->entries = cp;
+				cp_current = cp;
+			} else {
+				cp_current->next = cp;
+				cp_current = cp_current->next;
+			}
+
+			croffset += sizeof(*ondisk);
+		}
+		conflict_current->ce = ce;
+		conflict_current->next = xmalloc(sizeof(struct conflict_queue));
+		conflict_current = conflict_current->next;
+		conflict_current->ce = NULL;
+		conflict_current->next = NULL;
+	}
+
+	queue = xmalloc(sizeof(struct entry_queue));
+	current = queue;
+	current->ce = NULL;
+	current->next = NULL;
+	for (i = 0; i < de->de_nfiles; i++) {
+		struct cache_entry *ce;
+		ce = read_entry_v5(de,
+				entry_offset,
+				mmap,
+				mmap_size,
+				foffsetblock);
+
+		*foffsetblock += 4;
+		current->ce = ce;
+		current->next = xmalloc(sizeof(struct entry_queue));
+		current = current->next;
+		current->ce = NULL;
+		current->next = NULL;
+
+		/* Add the conflicted entries at the end of the index file
+		 * to the in memory format
+		 */
+		if (conflict_queue->ce != NULL &&
+		    (conflict_queue->ce->entries->flags & CONFLICT_MASK) == 0 &&
+		    strcmp(conflict_queue->ce->name, ce->name) == 0) {
+			struct conflict_part *cp, *current_cp;
+			cp = conflict_queue->ce->entries;
+			while (cp) {
+				ce = convert_conflict_part(cp,
+						conflict_queue->ce->name,
+						conflict_queue->ce->namelen);
+				
+				current->ce = ce;
+				current->next = xmalloc(sizeof(struct entry_queue));
+				current = current->next;
+				current->ce = NULL;
+				current->next = NULL;
+
+				current_cp = cp;
+				cp = cp->next;
+				free(current_cp);
+			}
+			conflict_current = conflict_queue;
+			conflict_queue = conflict_queue->next;
+			free(conflict_current);
+		}
+	}
+
+	while (queue->ce) {
+		if (de->next != NULL
+		    && strcmp(queue->ce->name, de->next->pathname) > 0) {
+			de = de->next;
+			de = read_entries_v5(istate,
+					de,
+					entry_offset,
+					mmap,
+					mmap_size,
+					nr,
+					foffsetblock,
+					1);
+		} else {
+			set_index_entry(istate, *nr, queue->ce);
+			(*nr)++;
+			current = queue;
+			queue = queue->next;
+			free(current);
+		}
+	}
+
+	if (de->next != NULL && !something_in_queue) {
+		de = de->next;
+		de = read_entries_v5(istate,
+				de,
+				entry_offset,
+				mmap,
+				mmap_size,
+				nr,
+				foffsetblock,
+				0);
+	}
+	return de;
+}
+
+void read_index_v2(struct index_state *istate, void *mmap, int mmap_size)
 {
 	int i;
 	unsigned long src_offset;
@@ -1451,9 +1907,6 @@ void read_index_v2(struct index_state *istate, struct stat st, void *mmap, int m
 		src_offset += consumed;
 	}
 	strbuf_release(&previous_name_buf);
-	istate->timestamp.sec = st.st_mtime;
-	istate->timestamp.nsec = ST_MTIME_NSEC(st);
-
 	while (src_offset <= mmap_size - 20 - 8) {
 		/* After an array of active_nr index entries,
 		 * there can be arbitrary number of extended
@@ -1475,8 +1928,38 @@ void read_index_v2(struct index_state *istate, struct stat st, void *mmap, int m
 	return;
 unmap:
 	munmap(mmap, mmap_size);
-	errno = EINVAL;
 	die("index file corrupt");
+}
+
+void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
+{
+	unsigned long dir_offset, entry_offset;
+	struct cache_version_header *hdr;
+	struct cache_header_v5 *hdr_v5;
+	struct directory_entry *directory_entries;
+	int nr;
+	unsigned int foffsetblock;
+
+	hdr = mmap;
+	hdr_v5 = mmap + sizeof(*hdr);
+	istate->version = ntohl(hdr->hdr_version);
+	istate->cache_nr = ntohl(hdr_v5->hdr_nfile);
+	istate->cache_alloc = alloc_nr(istate->cache_nr);
+	istate->cache = xcalloc(istate->cache_alloc, sizeof(struct cache_entry *));
+	istate->initialized = 1;
+
+	/* Skip size of the header + crc sum + size of offsets */
+	dir_offset = sizeof(*hdr) + sizeof(*hdr_v5) + 4 + ntohl(hdr_v5->hdr_ndir) * 4;
+	directory_entries = read_directories_v5(&dir_offset,
+			ntohl(hdr_v5->hdr_ndir), mmap, mmap_size);
+
+	entry_offset = ntohl(hdr_v5->hdr_fblockoffset);
+
+	nr = 0;
+	foffsetblock = dir_offset;
+	read_entries_v5(istate, directory_entries, &entry_offset,
+			mmap, mmap_size, &nr, &foffsetblock, 0);
+	return;
 }
 
 /* remember to discard_cache() before reading a different cache! */
@@ -1519,17 +2002,25 @@ int read_index_from(struct index_state *istate, const char *path)
 	if (verify_hdr_version(hdr, mmap_size) < 0)
 		goto unmap;
 
-	if (verify_hdr_v2(hdr, mmap_size) < 0)
-		goto unmap;
+	if (htonl(hdr->hdr_version) != 5) {
+		if (verify_hdr_v2(hdr, mmap_size) < 0)
+			goto unmap;
 
-	read_index_v2(istate, st, mmap, mmap_size);
+		read_index_v2(istate, mmap, mmap_size);
+	} else {
+		if (verify_hdr_v5(hdr) < 0)
+			goto unmap;
+
+		read_index_v5(istate, mmap, mmap_size);
+	}
+	istate->timestamp.sec = st.st_mtime;
+	istate->timestamp.nsec = ST_MTIME_NSEC(st);
 
 	munmap(mmap, mmap_size);
 	return istate->cache_nr;
 
 unmap:
 	munmap(mmap, mmap_size);
-	errno = EINVAL;
 	die("index file corrupt");
 }
 
