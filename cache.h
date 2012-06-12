@@ -526,6 +526,10 @@ extern int index_name_is_other(const struct index_state *, const char *, int);
 extern int ie_match_stat(const struct index_state *, struct cache_entry *, struct stat *, unsigned int);
 extern int ie_modified(const struct index_state *, struct cache_entry *, struct stat *, unsigned int);
 
+/* index api */
+extern void index_open(struct index_state *);
+extern void index_load_filtered(struct index_state *, const char *);
+
 struct pathspec {
 	const char **raw; /* get_pathspec() result, not freed by free_pathspec() */
 	int nr;

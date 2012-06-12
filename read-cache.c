@@ -32,6 +32,14 @@ static struct cache_entry *refresh_cache_entry(struct cache_entry *ce, int reall
 
 struct index_state the_index;
 
+struct mmaped_index_file {
+	void *mmap;
+	int mmap_size;
+	int ndir;
+};
+
+struct mmaped_index_file *mmaped_index;
+
 static void set_index_entry(struct index_state *istate, int nr, struct cache_entry *ce)
 {
 	istate->cache[nr] = ce;
@@ -2023,6 +2031,112 @@ int read_index_from(struct index_state *istate, const char *path)
 unmap:
 	munmap(mmap, mmap_size);
 	die("index file corrupt");
+}
+
+/* index API */
+void index_open_from(struct index_state *istate, const char *path)
+{
+	int fd;
+	struct stat st;
+	struct cache_version_header *hdr;
+	struct cache_header_v5 *hdr_v5;
+	void *mmap;
+	size_t mmap_size;
+
+	errno = EBUSY;
+	if (istate->initialized)
+		return;
+
+	errno = ENOENT;
+	istate->timestamp.sec = 0;
+	istate->timestamp.nsec = 0;
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		if (errno == ENOENT)
+			return;
+		die_errno("index file open failed");
+	}
+
+	if (fstat(fd, &st))
+		die_errno("cannot stat the open index");
+
+	errno = EINVAL;
+	mmap_size = xsize_t(st.st_size);
+	if (mmap_size < sizeof(struct cache_version_header) + 20)
+		die("index file smaller than expected");
+
+	mmap = xmmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if (mmap == MAP_FAILED)
+		die_errno("unable to map index file");
+
+	hdr = mmap;
+	if (verify_hdr_version(hdr, mmap_size) < 0)
+		goto unmap;
+
+	istate->version = htonl(hdr->hdr_version);
+
+	if (istate->version != 5) {
+		if (verify_hdr_v2(hdr, mmap_size) < 0)
+			goto unmap;
+	} else {
+		if (verify_hdr_v5(hdr) < 0)
+			goto unmap;
+	}
+
+	hdr_v5 = mmap + sizeof(*hdr);
+
+	mmaped_index = xmalloc(sizeof(struct mmaped_index_file));
+	mmaped_index->mmap = mmap;
+	mmaped_index->mmap_size = mmap_size;
+	mmaped_index->ndir = ntoh_l(hdr_v5->hdr_ndir);
+	return;
+unmap:
+	munmap(mmap, mmap_size);
+	die("index file corrupt");
+}
+
+void index_open(struct index_state *istate)
+{
+	index_open_from(istate, get_index_file());
+}
+
+void index_load_filtered(struct index_state *istate, const char *prefix)
+{
+	struct cache_entry **ce;
+	int lo, hi, offset, hdr_offset;
+
+	discard_index(istate);
+	if (istate->version == 5) {
+		hdr_offset = sizeof(struct cache_version_header)
+			   + sizeof(struct cache_header_v5) + 4;
+		offset = hdr_offset + mmaped_index->ndir * 4;
+		lo = 0;
+		hi = mmaped_index->ndir;
+		while (lo < hi) {
+			int mi = (lo + hi) / 2;
+			int *dirpos, cmp;
+			char *dirname;
+
+			dirpos = mmaped_index->mmap + mi * 4 + hdr_offset;
+			dirname = (char *)mmaped_index->mmap + ntoh_l(*dirpos) + offset;
+			cmp = strcmp(prefix, dirname);
+			if (cmp == 0) {
+				break;
+			} else if (cmp < 0) {
+				hi = mi;
+			} else {
+				lo = mi + 1;
+			}
+		}
+	}
+}
+
+void index_close(struct index_state *istate)
+{
+	discard_index(istate);
+	munmap(mmaped_index->mmap, mmaped_index->mmap_size);
+	free(mmaped_index);
 }
 
 int is_index_unborn(struct index_state *istate)
