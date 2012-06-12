@@ -621,7 +621,7 @@ static int unuse_one_window(struct packed_git *current, int keep_fd)
 	for (p = packed_git; p; p = p->next)
 		scan_windows(p, &lru_p, &lru_w, &lru_l);
 	if (lru_p) {
-		munmap(lru_w->base, lru_w->len);
+		free(lru_w->base);
 		pack_mapped -= lru_w->len;
 		if (lru_l)
 			lru_l->next = lru_w->next;
@@ -671,7 +671,7 @@ void close_pack_windows(struct packed_git *p)
 		if (w->inuse_cnt)
 			die("pack '%s' still has open windows to it",
 			    p->pack_name);
-		munmap(w->base, w->len);
+		free(w->base);
 		pack_mapped -= w->len;
 		pack_open_windows--;
 		p->windows = w->next;
@@ -880,13 +880,9 @@ unsigned char *use_pack(struct packed_git *p,
 			while (packed_git_limit < pack_mapped
 				&& unuse_one_window(p, p->pack_fd))
 				; /* nothing */
-			win->base = xmmap(NULL, win->len,
-				PROT_READ, MAP_PRIVATE,
-				p->pack_fd, win->offset);
-			if (win->base == MAP_FAILED)
-				die("packfile %s cannot be mapped: %s",
-					p->pack_name,
-					strerror(errno));
+			win->base = xmalloc(win->len);
+			if (pread(p->pack_fd, win->base, win->len, win->offset) < 0)
+				die_errno("pread from pack %s failed", p->pack_name);
 			if (!win->offset && win->len == p->pack_size
 				&& !p->do_not_close) {
 				close(p->pack_fd);
