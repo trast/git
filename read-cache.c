@@ -1643,60 +1643,53 @@ static struct cache_entry *create_from_disk(struct ondisk_cache_entry *ondisk,
 }
 
 static struct directory_entry *read_directories_v5(unsigned long *dir_offset,
-				unsigned int ndir,
 				void *mmap,
 				int mmap_size)
 {
 	int i;
 	uint32_t *filecrc;
-	struct directory_entry *entries = NULL;
 	struct directory_entry *current = NULL;
+	struct ondisk_directory_entry *disk_de;
+	struct directory_entry *de;
+	unsigned int data_len, len; 
+	char *name;
 
-	for (i = 0; i < ndir; i++) {
-		struct ondisk_directory_entry *disk_de;
-		struct directory_entry *de;
-		unsigned int data_len; 
-		unsigned int len;
-		char *name;
+	name = (char *)mmap + *dir_offset;
+	len = strlen(name);
+	disk_de = (struct ondisk_directory_entry *)
+			((char *)mmap + *dir_offset + len + 1);
+	de = directory_entry_from_ondisk(disk_de, name, len);
+	de->next = NULL;
 
-		name = (char *)mmap + *dir_offset;
-		len = strlen(name);
-		disk_de = (struct ondisk_directory_entry *)
-				((char *)mmap + *dir_offset + len + 1);
-		de = directory_entry_from_ondisk(disk_de, name, len);
+	/* Length of pathname + nul byte for termination + size of
+	 * members of ondisk_directory_entry. (Just using the size
+	 * of the stuct doesn't work, because there may be padding
+	 * bytes for the struct)
+	 */
+	data_len = len + 1
+		+ sizeof(disk_de->flags)
+		+ sizeof(disk_de->foffset)
+		+ sizeof(disk_de->cr)
+		+ sizeof(disk_de->ncr)
+		+ sizeof(disk_de->nsubtrees)
+		+ sizeof(disk_de->nfiles)
+		+ sizeof(disk_de->nentries)
+		+ sizeof(disk_de->sha1);
 
-		if (entries == NULL) {
-			entries = de;
-			current = de;
-		} else {
-			current->next = de;
+	filecrc = mmap + *dir_offset + data_len;
+	if (!check_crc32(0, mmap + *dir_offset, data_len, ntoh_l(*filecrc)))
+		goto unmap;
+
+	*dir_offset += data_len + 4; /* crc code */
+
+	current = de;
+	for (i = 0; i < de->de_nsubtrees; i++) {
+		current->next = read_directories_v5(dir_offset, mmap, mmap_size);
+		while (current->next)
 			current = current->next;
-			current->next = NULL;
-		}
-
-		/* Length of pathname + nul byte for termination + size of
-		 * members of ondisk_directory_entry. (Just using the size
-		 * of the stuct doesn't work, because there may be padding
-		 * bytes for the struct)
-		 */
-		data_len = len + 1
-			+ sizeof(disk_de->flags)
-			+ sizeof(disk_de->foffset)
-			+ sizeof(disk_de->cr)
-			+ sizeof(disk_de->ncr)
-			+ sizeof(disk_de->nsubtrees)
-			+ sizeof(disk_de->nfiles)
-			+ sizeof(disk_de->nentries)
-			+ sizeof(disk_de->sha1);
-
-		filecrc = mmap + *dir_offset + data_len;
-		if (!check_crc32(0, mmap + *dir_offset, data_len, ntoh_l(*filecrc)))
-			goto unmap;
-
-		*dir_offset += data_len + 4; /* crc code */
 	}
 
-	return entries;
+	return de;
 unmap:
 	munmap(mmap, mmap_size);
 	die("directory crc doesn't match for '%s'", current->pathname);
@@ -1958,8 +1951,7 @@ void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
 
 	/* Skip size of the header + crc sum + size of offsets */
 	dir_offset = sizeof(*hdr) + sizeof(*hdr_v5) + 4 + ntohl(hdr_v5->hdr_ndir) * 4;
-	directory_entries = read_directories_v5(&dir_offset,
-			ntohl(hdr_v5->hdr_ndir), mmap, mmap_size);
+	directory_entries = read_directories_v5(&dir_offset, mmap, mmap_size);
 
 	entry_offset = ntohl(hdr_v5->hdr_fblockoffset);
 
