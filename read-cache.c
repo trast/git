@@ -13,6 +13,7 @@
 #include "blob.h"
 #include "resolve-undo.h"
 #include "strbuf.h"
+#include "string-list.h"
 #include "varint.h"
 
 static struct cache_entry *refresh_cache_entry(struct cache_entry *ce, int really);
@@ -2284,6 +2285,57 @@ static void ce_smudge_racily_clean_entry(struct cache_entry *ce)
 	}
 }
 
+/* TODO check if this works */
+static void ce_smudge_racily_clean_entry_v5(struct cache_entry *ce)
+{
+	/*
+	 * The only thing we care about in this function is to smudge the
+	 * falsely clean entry due to touch-update-touch race, so we leave
+	 * everything else as they are.  We are called for entries whose
+	 * ce_mtime match the index file mtime.
+	 *
+	 * Note that this actually does not do much for gitlinks, for
+	 * which ce_match_stat_basic() always goes to the actual
+	 * contents.  The caller checks with is_racy_timestamp() which
+	 * always says "no" for gitlinks, so we are not called for them ;-)
+	 */
+	struct stat st;
+
+	if (lstat(ce->name, &st) < 0)
+		return;
+	if (ce_match_stat_basic(ce, &st))
+		return;
+	if (ce_modified_check_fs(ce, &st)) {
+		/* This is "racily clean"; smudge it.  Note that this
+		 * is a tricky code.  At first glance, it may appear
+		 * that it can break with this sequence:
+		 *
+		 * $ echo xyzzy >frotz
+		 * $ git-update-index --add frotz
+		 * $ : >frotz
+		 * $ sleep 3
+		 * $ echo filfre >nitfol
+		 * $ git-update-index --add nitfol
+		 *
+		 * but it does not.  When the second update-index runs,
+		 * it notices that the entry "frotz" has the same timestamp
+		 * as index, and if we were to smudge it by resetting its
+		 * time to zero here, then the object name recorded
+		 * in index is the 6-byte file but the cached stat information
+		 * becomes zero --- which would then match what we would
+		 * obtain from the filesystem next time we stat("frotz").
+		 *
+		 * However, the second update-index, before calling
+		 * this function, notices that the cached size is 6
+		 * bytes and what is on the filesystem is an empty
+		 * file, and never calls us, so the cached size information
+		 * for "frotz" stays 6 which does not match the filesystem.
+		 */
+		ce->ce_mtime.sec = 0;
+		ce->ce_mtime.nsec = 0;
+	}
+}
+
 /* Copy miscellaneous fields but not the name */
 static char *copy_cache_entry_to_ondisk(struct ondisk_cache_entry *ondisk,
 				       struct cache_entry *ce)
@@ -2462,13 +2514,160 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	return 0;
 }
 
+static char *sub_directory(char *filename, int *level)
+{
+	char *prev, *last, *dir_name;
+	int last_slash_pos;
+
+	prev = NULL;
+	dir_name = NULL;
+	*level = 0;
+	last = strchr(filename, '/');
+	while (last != NULL)
+	{
+		(*level)++;
+		prev = last;
+		last = strchr(last + 1, '/');
+	}
+	if (prev) {
+		last_slash_pos = prev - filename;
+		dir_name = xmalloc(sizeof(char) * last_slash_pos + 1);
+		memcpy(dir_name, filename, last_slash_pos);
+		dir_name[last_slash_pos] = '\0';
+	}
+	return dir_name;
+}
+
+static struct directory_entry *init_directory_entry(char *pathname, int len)
+{
+	struct directory_entry *de = xmalloc(directory_entry_size(len));
+
+	memcpy(de->pathname, pathname, len);
+	de->pathname[len] = '\0';
+	de->de_flags      = 0;
+	de->de_foffset    = 0;
+	de->de_cr         = 0;
+	de->de_ncr        = 0;
+	de->de_nsubtrees  = 0;
+	de->de_nfiles     = 0;
+	de->de_nentries   = 0;
+	de->de_pathlen    = len;
+	return de;
+}
+
+static struct directory_entry *find_directories(struct cache_entry **cache,
+						int nfile)
+{
+	int i, k, dir_len, level, prev_level;
+	char *dir, *sub;
+	struct directory_entry *de, *current, *search, *new;
+	struct string_list list;
+
+	de = init_directory_entry("", 0);
+	current = de;
+	de->super = NULL;
+	prev_level = 0;
+	level = 0;
+	current = de;
+	for (i = 1; i < nfile; i++) {
+		if (cache[i]->ce_flags & CE_REMOVE)
+			continue;
+		dir = sub_directory(cache[i]->name, &level);
+		if (!dir)
+			continue;
+		dir_len = strlen(dir);
+
+		if (prev_level < level
+			&& strncmp(current->pathname, dir, strlen(current->pathname)) != 0) {
+			memset(&list, 0, sizeof(struct string_list));
+			sub = dir;
+			while (prev_level + 1 <= level) {
+				printf("%i %i\n", prev_level, level);
+				int l;
+
+				sub = sub_directory(sub, &l);
+				string_list_append(&list, sub);
+				prev_level++;
+			}
+			for (k = list.nr - 1; k >= 0; k--) {
+				new = init_directory_entry(list.items[k].string, strlen(list.items[k].string));
+				search = current;
+				if (k == list.nr - 1)
+					new->super = current->super;
+				else
+					new->super = current;
+				new->super->de_nsubtrees++;
+				current->next = new;
+				current = current->next;
+				current->next = NULL;
+			}
+			string_list_clear(&list, 0);
+			prev_level = level - 1;
+		}
+
+		if (dir && strncmp(current->pathname, dir, dir_len) != 0) {
+			new = init_directory_entry(dir, dir_len);
+			search = current;
+			while (prev_level >= level && search->super) {
+				search = search->super;
+				prev_level--;
+			}
+			new->super = search;
+			new->super->de_nsubtrees++;
+			current->next = new;
+			current = current->next;
+			current->next = NULL;
+			prev_level = level;
+		}
+	}
+	return de;
+}
+
+static int write_index_v5(struct index_state *istate, int newfd)
+{
+	struct cache_version_header hdr;
+	struct cache_header_v5 hdr_v5;
+	struct cache_entry **cache = istate->cache;
+	struct directory_entry *de;
+	int entries = istate->cache_nr;
+	int i, removed;
+
+	for (i = removed = 0; i < entries; i++) {
+		if (cache[i]->ce_flags & CE_REMOVE)
+			removed++;
+	}
+	hdr.hdr_signature = htonl(CACHE_SIGNATURE);
+	hdr.hdr_version = htonl(istate->version);
+	hdr_v5.hdr_nfile = htonl(entries - removed);
+	hdr_v5.hdr_nextension = 0; /* Currently no extensions are supported */
+
+	de = find_directories(cache, entries);
+	if (de == NULL)
+		printf("no dir\n");
+	while (de) {
+		printf("%s %i\n", de->pathname, de->de_nsubtrees);
+		de = de->next;
+	}
+
+	for (i = 0; i < entries; i++) {
+		struct cache_entry *ce = cache[i];
+		if (ce->ce_flags & CE_REMOVE)
+			continue;
+		if (!ce_uptodate(ce) && is_racy_timestamp(istate, ce))
+			ce_smudge_racily_clean_entry_v5(ce);
+	}
+	return -1;
+}
+
 int write_index(struct index_state *istate, int newfd)
 {
-	printf("Write index\n");
 	if (!istate->version)
 		istate->version = INDEX_FORMAT_DEFAULT;
 
-	return write_index_v2(istate, newfd);
+	if (istate->version != 5)
+		return write_index_v2(istate, newfd);
+	else
+		return write_index_v5(istate, newfd);
 }
 
 /*
