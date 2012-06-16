@@ -2514,7 +2514,7 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	return 0;
 }
 
-static char *sub_directory(char *filename, int *level)
+static char *super_directory(char *filename, int *level)
 {
 	char *prev, *last, *dir_name;
 	int last_slash_pos;
@@ -2569,28 +2569,30 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	prev_level = 0;
 	level = 0;
 	current = de;
-	for (i = 1; i < nfile; i++) {
+	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
 			continue;
-		dir = sub_directory(cache[i]->name, &level);
-		if (!dir)
+		dir = super_directory(cache[i]->name, &level);
+		if (!dir) {
+			de->de_nfiles++;
 			continue;
+		}
 		dir_len = strlen(dir);
 
 		if (prev_level < level
-			&& strncmp(current->pathname, dir, strlen(current->pathname)) != 0) {
+			&& strncmp(current->pathname, dir, current->de_pathlen != 0)) {
 			memset(&list, 0, sizeof(struct string_list));
 			sub = dir;
 			while (prev_level + 1 <= level) {
-				printf("%i %i\n", prev_level, level);
 				int l;
 
-				sub = sub_directory(sub, &l);
+				sub = super_directory(sub, &l);
 				string_list_append(&list, sub);
 				prev_level++;
 			}
 			for (k = list.nr - 1; k >= 0; k--) {
-				new = init_directory_entry(list.items[k].string, strlen(list.items[k].string));
+				new = init_directory_entry(list.items[k].string,
+						strlen(list.items[k].string));
 				search = current;
 				if (k == list.nr - 1)
 					new->super = current->super;
@@ -2605,7 +2607,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			prev_level = level - 1;
 		}
 
-		if (dir && strncmp(current->pathname, dir, dir_len) != 0) {
+		if (strncmp(current->pathname, dir, dir_len) != 0) {
 			new = init_directory_entry(dir, dir_len);
 			search = current;
 			while (prev_level >= level && search->super) {
@@ -2619,6 +2621,11 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			current->next = NULL;
 			prev_level = level;
 		}
+		search = current;
+		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
+			search = search->super;
+		search->de_nfiles++;
+
 	}
 	return de;
 }
@@ -2645,7 +2652,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	if (de == NULL)
 		printf("no dir\n");
 	while (de) {
-		printf("%s %i\n", de->pathname, de->de_nsubtrees);
+		printf("%s %i %i\n", de->pathname, de->de_nsubtrees, de->de_nfiles);
 		de = de->next;
 	}
 
