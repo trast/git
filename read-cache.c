@@ -2556,7 +2556,8 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 }
 
 static struct directory_entry *find_directories(struct cache_entry **cache,
-						int nfile)
+						int nfile,
+						unsigned int *ndir)
 {
 	int i, k, dir_len, level, prev_level;
 	char *dir, *sub;
@@ -2568,6 +2569,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	de->super = NULL;
 	prev_level = 0;
 	level = 0;
+	*ndir = 1;
 	current = de;
 	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
@@ -2580,9 +2582,10 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 		dir_len = strlen(dir);
 
 		if (prev_level < level
-			&& strncmp(current->pathname, dir, current->de_pathlen != 0)) {
+			&& strncmp(current->pathname, dir, current->de_pathlen) != 0) {
 			memset(&list, 0, sizeof(struct string_list));
 			sub = dir;
+			printf("%s\n", dir);
 			while (prev_level + 1 <= level) {
 				int l;
 
@@ -2602,6 +2605,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 				current->next = new;
 				current = current->next;
 				current->next = NULL;
+				(*ndir)++;
 			}
 			string_list_clear(&list, 0);
 			prev_level = level - 1;
@@ -2620,6 +2624,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			current = current->next;
 			current->next = NULL;
 			prev_level = level;
+			(*ndir)++;
 		}
 		search = current;
 		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
@@ -2648,13 +2653,15 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	hdr_v5.hdr_nfile = htonl(entries - removed);
 	hdr_v5.hdr_nextension = 0; /* Currently no extensions are supported */
 
-	de = find_directories(cache, entries);
+	de = find_directories(cache, entries, &hdr_v5.hdr_ndir);
+	write_directories_v5(de);
 	if (de == NULL)
 		printf("no dir\n");
 	while (de) {
 		printf("%s %i %i\n", de->pathname, de->de_nsubtrees, de->de_nfiles);
 		de = de->next;
 	}
+	printf("%i\n", hdr_v5.hdr_ndir);
 
 	for (i = 0; i < entries; i++) {
 		struct cache_entry *ce = cache[i];
