@@ -2221,13 +2221,12 @@ static int ce_write_v5(uint32_t *crc, int fd, void *data, unsigned int len)
 	while (len) {
 		unsigned int buffered = write_buffer_len;
 		unsigned int partial = WRITE_BUFFER_SIZE - buffered;
+		if (crc)
+			*crc = crc32(*crc, (Bytef*)data, len);
 		if (partial > len)
 			partial = len;
 		memcpy(write_buffer + buffered, data, partial);
 		buffered += partial;
-		printf("%i\n", len);
-		if (crc)
-			*crc = crc32(*crc, (Bytef*)data, len);
 		if (buffered == WRITE_BUFFER_SIZE) {
 			write_buffer_len = buffered;
 			if (ce_write_flush_v5(fd))
@@ -2600,6 +2599,7 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_nsubtrees  = 0;
 	de->de_nfiles     = 0;
 	de->de_nentries   = 0;
+	memset(de->sha1, 0, 20);
 	de->de_pathlen    = len;
 	return de;
 }
@@ -2639,7 +2639,6 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			&& strncmp(current->pathname, dir, current->de_pathlen) != 0) {
 			memset(&list, 0, sizeof(struct string_list));
 			sub = dir;
-			printf("%s\n", dir);
 			while (prev_level + 1 <= level) {
 				int l;
 
@@ -2690,6 +2689,68 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	return de;
 }
 
+static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directory_entry *de)
+{
+	struct ondisk_directory_entry *ondisk;
+
+	ondisk = xcalloc(1, sizeof(struct ondisk_directory_entry));
+	ondisk->foffset   = htonl(de->de_foffset);
+	ondisk->cr        = htonl(de->de_cr);
+	ondisk->ncr       = htonl(de->de_ncr);
+	ondisk->nsubtrees = htonl(de->de_nsubtrees);
+	ondisk->nfiles    = htonl(de->de_nfiles);
+	ondisk->nentries  = htonl(de->de_nentries);
+	hashcpy(ondisk->sha1, de->sha1);
+	ondisk->flags     = htons(de->de_flags);
+	return ondisk;
+}
+
+static int write_directories_v5(struct directory_entry *de, int fd)
+{
+	struct directory_entry *current;
+	struct ondisk_directory_entry *ondisk;
+	int current_offset, offset_write, ondisk_size;
+
+	current = de;
+	current_offset = 0;
+	while (current) {
+		offset_write = htonl(current_offset);
+		if (ce_write_v5(NULL, fd, &current_offset, 4) < 0)
+			return -1;
+		current_offset += current->de_pathlen
+				  + sizeof(struct ondisk_directory_entry);
+		current = current->next;
+	}
+	current = de;
+	/*
+	* This is needed because the compiler aligns structs to sizes multipe
+	* of 4
+	*/
+	ondisk_size = sizeof(ondisk->flags)
+		+ sizeof(ondisk->foffset)
+		+ sizeof(ondisk->cr)
+		+ sizeof(ondisk->ncr)
+		+ sizeof(ondisk->nsubtrees)
+		+ sizeof(ondisk->nfiles)
+		+ sizeof(ondisk->nentries)
+		+ sizeof(ondisk->sha1);
+	while (current) {
+		uint32_t crc;
+
+		crc = 0;
+		if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen + 1) < 0)
+			return -1;
+		ondisk = ondisk_from_directory_entry(de);
+		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
+			return -1;
+		crc = htonl(crc);
+		if (ce_write_v5(NULL, fd, &crc, 4) < 0)
+			return -1;
+		current = current->next;
+	}
+	return 0;
+}
+
 static int write_index_v5(struct index_state *istate, int newfd)
 {
 	struct cache_version_header hdr;
@@ -2727,7 +2788,8 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	if (ce_write_v5(NULL, newfd, &crc, 4) < 0)
 		return -1;
 
-	/* write_directories_v5(de); */
+	write_directories_v5(de, newfd);
+
 	for (i = 0; i < entries; i++) {
 		struct cache_entry *ce = cache[i];
 		if (ce->ce_flags & CE_REMOVE)
