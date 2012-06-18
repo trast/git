@@ -2183,6 +2183,17 @@ static int ce_write_flush(git_SHA_CTX *context, int fd)
 	return 0;
 }
 
+static int ce_write_flush_v5(int fd)
+{
+	unsigned int buffered = write_buffer_len;
+	if (buffered) {
+		if (write_in_full(fd, write_buffer, buffered) != buffered)
+			return -1;
+		write_buffer_len = 0;
+	}
+	return 0;
+}
+
 static int ce_write(git_SHA_CTX *context, int fd, void *data, unsigned int len)
 {
 	while (len) {
@@ -2195,6 +2206,31 @@ static int ce_write(git_SHA_CTX *context, int fd, void *data, unsigned int len)
 		if (buffered == WRITE_BUFFER_SIZE) {
 			write_buffer_len = buffered;
 			if (ce_write_flush(context, fd))
+				return -1;
+			buffered = 0;
+		}
+		write_buffer_len = buffered;
+		len -= partial;
+		data = (char *) data + partial;
+	}
+	return 0;
+}
+
+static int ce_write_v5(uint32_t *crc, int fd, void *data, unsigned int len)
+{
+	while (len) {
+		unsigned int buffered = write_buffer_len;
+		unsigned int partial = WRITE_BUFFER_SIZE - buffered;
+		if (partial > len)
+			partial = len;
+		memcpy(write_buffer + buffered, data, partial);
+		buffered += partial;
+		printf("%i\n", len);
+		if (crc)
+			*crc = crc32(*crc, (Bytef*)data, len);
+		if (buffered == WRITE_BUFFER_SIZE) {
+			write_buffer_len = buffered;
+			if (ce_write_flush_v5(fd))
 				return -1;
 			buffered = 0;
 		}
@@ -2234,6 +2270,19 @@ static int ce_flush(git_SHA_CTX *context, int fd)
 	git_SHA1_Final(write_buffer + left, context);
 	left += 20;
 	return (write_in_full(fd, write_buffer, left) != left) ? -1 : 0;
+}
+
+static int ce_flush_v5(int fd)
+{
+	unsigned int left = write_buffer_len;
+
+	if (left)
+		write_buffer_len = 0;
+
+	if (write_in_full(fd, write_buffer, left) != left)
+		return -1;
+
+	return 0;
 }
 
 static void ce_smudge_racily_clean_entry(struct cache_entry *ce)
@@ -2557,7 +2606,9 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 
 static struct directory_entry *find_directories(struct cache_entry **cache,
 						int nfile,
-						unsigned int *ndir)
+						unsigned int *ndir,
+						int *non_conflicted,
+						int *total_dir_len)
 {
 	int i, k, dir_len, level, prev_level;
 	char *dir, *sub;
@@ -2570,10 +2621,13 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	prev_level = 0;
 	level = 0;
 	*ndir = 1;
+	*total_dir_len = 1;
 	current = de;
 	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
 			continue;
+		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
+			(*non_conflicted)++;
 		dir = super_directory(cache[i]->name, &level);
 		if (!dir) {
 			de->de_nfiles++;
@@ -2606,6 +2660,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 				current = current->next;
 				current->next = NULL;
 				(*ndir)++;
+				*total_dir_len += new->de_pathlen + 1;
 			}
 			string_list_clear(&list, 0);
 			prev_level = level - 1;
@@ -2625,12 +2680,12 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			current->next = NULL;
 			prev_level = level;
 			(*ndir)++;
+			*total_dir_len += new->de_pathlen + 1;
 		}
 		search = current;
 		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
 			search = search->super;
 		search->de_nfiles++;
-
 	}
 	return de;
 }
@@ -2642,7 +2697,8 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	struct cache_entry **cache = istate->cache;
 	struct directory_entry *de;
 	int entries = istate->cache_nr;
-	int i, removed;
+	int i, removed, non_conflicted, total_dir_len;
+	uint32_t crc;
 
 	for (i = removed = 0; i < entries; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
@@ -2653,16 +2709,25 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	hdr_v5.hdr_nfile = htonl(entries - removed);
 	hdr_v5.hdr_nextension = 0; /* Currently no extensions are supported */
 
-	de = find_directories(cache, entries, &hdr_v5.hdr_ndir);
-	write_directories_v5(de);
-	if (de == NULL)
-		printf("no dir\n");
-	while (de) {
-		printf("%s %i %i\n", de->pathname, de->de_nsubtrees, de->de_nfiles);
-		de = de->next;
-	}
-	printf("%i\n", hdr_v5.hdr_ndir);
+	non_conflicted = 0;
+	de = find_directories(cache, entries, &hdr_v5.hdr_ndir, &non_conflicted,
+			&total_dir_len);
+	hdr_v5.hdr_fblockoffset = sizeof(hdr) + sizeof(hdr_v5) + 4
+		+ hdr_v5.hdr_ndir * 4
+		+ total_dir_len
+		+ (hdr_v5.hdr_ndir + 4) * sizeof(struct ondisk_directory_entry)
+		+ non_conflicted * 4;
 
+	crc = 0;
+	if (ce_write_v5(&crc, newfd, &hdr, sizeof(hdr)) < 0)
+		return -1;
+	if (ce_write_v5(&crc, newfd, &hdr_v5, sizeof(hdr_v5)) < 0)
+		return -1;
+	crc = htonl(crc);
+	if (ce_write_v5(NULL, newfd, &crc, 4) < 0)
+		return -1;
+
+	/* write_directories_v5(de); */
 	for (i = 0; i < entries; i++) {
 		struct cache_entry *ce = cache[i];
 		if (ce->ce_flags & CE_REMOVE)
@@ -2670,7 +2735,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 		if (!ce_uptodate(ce) && is_racy_timestamp(istate, ce))
 			ce_smudge_racily_clean_entry_v5(ce);
 	}
-	return -1;
+	return ce_flush_v5(newfd);
 }
 
 int write_index(struct index_state *istate, int newfd)
