@@ -2684,7 +2684,10 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 		search = current;
 		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
 			search = search->super;
-		search->de_nfiles++;
+		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
+			search->de_nfiles++;
+		else
+			search->de_ncr++;
 	}
 	return de;
 }
