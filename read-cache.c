@@ -2598,7 +2598,7 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_ncr        = 0;
 	de->de_nsubtrees  = 0;
 	de->de_nfiles     = 0;
-	de->de_nentries   = 0;
+	de->de_nentries   = -1;
 	memset(de->sha1, 0, 20);
 	de->de_pathlen    = len;
 	return de;
