@@ -2709,10 +2709,11 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 {
 	struct directory_entry *current;
 	struct ondisk_directory_entry *ondisk;
-	int current_offset, offset_write, ondisk_size;
+	int current_offset, offset_write, ondisk_size, foffset;
 
 	current = de;
 	current_offset = 0;
+	foffset = 0;
 	while (current) {
 		offset_write = htonl(current_offset);
 		if (ce_write_v5(NULL, fd, &current_offset, 4) < 0)
@@ -2740,12 +2741,14 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 		crc = 0;
 		if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen + 1) < 0)
 			return -1;
-		ondisk = ondisk_from_directory_entry(de);
+		current->de_foffset = foffset;
+		ondisk = ondisk_from_directory_entry(current);
 		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
 			return -1;
 		crc = htonl(crc);
 		if (ce_write_v5(NULL, fd, &crc, 4) < 0)
 			return -1;
+		foffset += current->de_nfiles * 4;
 		current = current->next;
 	}
 	return 0;
