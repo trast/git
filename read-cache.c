@@ -2636,6 +2636,15 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 		dir = super_directory(cache[i]->name, &level);
 		if (!dir) {
 			de->de_nfiles++;
+			if (de->ce == NULL) {
+				de->ce = cache[i];
+				de->ce_last = de->ce;
+				de->ce_last->next = NULL;
+			} else {
+				de->ce_last->next = cache[i];
+				de->ce_last = de->ce_last->next;
+				de->ce_last->next = NULL;
+			}
 			continue;
 		}
 		dir_len = strlen(dir);
@@ -2664,7 +2673,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 				current = current->next;
 				current->next = NULL;
 				(*ndir)++;
-				*total_dir_len += new->de_pathlen + 1;
+				*total_dir_len += new->de_pathlen + 2;
 			}
 			string_list_clear(&list, 0);
 			prev_level = level - 1;
@@ -2684,7 +2693,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			current->next = NULL;
 			prev_level = level;
 			(*ndir)++;
-			*total_dir_len += new->de_pathlen + 1;
+			*total_dir_len += new->de_pathlen + 2;
 		}
 		search = current;
 		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
@@ -2693,6 +2702,16 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			search->de_nfiles++;
 		else
 			search->de_ncr++;
+
+		if (search->ce == NULL) {
+			search->ce = cache[i];
+			search->ce_last = search->ce;
+			search->ce_last->next = NULL;
+		} else {
+			search->ce_last->next = cache[i];
+			search->ce_last = search->ce_last->next;
+			search->ce_last->next = NULL;
+		}
 	}
 	return de;
 }
@@ -2713,28 +2732,51 @@ static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directo
 	return ondisk;
 }
 
+static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry *ce)
+{
+	struct ondisk_cache_entry_v5 *ondisk;
+	uint32_t stat_crc = 0;
+	uint32_t *stat = xmalloc(sizeof(uint32_t));
+	unsigned int ctimens = 0;
+
+	ondisk = xcalloc(1, sizeof(struct ondisk_cache_entry_v5));
+	ondisk->flags      = htons(ce->ce_flags);
+	ondisk->mode       = htons(ce->ce_mode);
+	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
+	ondisk->mtime.nsec = htonl(ce->ce_mtime.nsec);
+
+	*stat = htonl(ce->ce_ctime.sec);
+	stat_crc = crc32(0, (Bytef*)stat, 4);
+#ifdef USE_NSEC
+	ctimens = ce->ce_ctime.nsec
+#endif
+	*stat = htonl(ctimens);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(ce->ce_ino);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(ce->ce_size);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(ce->ce_dev);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(ce->ce_uid);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	*stat = htonl(ce->ce_gid);
+	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	ondisk->stat_crc = htonl(stat_crc);
+	hashcpy(ondisk->sha1, ce->sha1);
+	return ondisk;
+}
+
 static int write_directories_v5(struct directory_entry *de, int fd)
 {
 	struct directory_entry *current;
 	struct ondisk_directory_entry *ondisk;
 	int current_offset, offset_write, ondisk_size, foffset;
 
-	current = de;
-	current_offset = 0;
-	foffset = 0;
-	while (current) {
-		offset_write = htonl(current_offset);
-		if (ce_write_v5(NULL, fd, &current_offset, 4) < 0)
-			return -1;
-		current_offset += current->de_pathlen
-				  + sizeof(struct ondisk_directory_entry);
-		current = current->next;
-	}
-	current = de;
 	/*
-	* This is needed because the compiler aligns structs to sizes multipe
-	* of 4
-	*/
+	 * This is needed because the compiler aligns structs to sizes multipe
+	 * of 4
+	 */
 	ondisk_size = sizeof(ondisk->flags)
 		+ sizeof(ondisk->foffset)
 		+ sizeof(ondisk->cr)
@@ -2743,12 +2785,30 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 		+ sizeof(ondisk->nfiles)
 		+ sizeof(ondisk->nentries)
 		+ sizeof(ondisk->sha1);
+	current = de;
+	current_offset = 0;
+	foffset = 0;
+	while (current) {
+		offset_write = htonl(current_offset);
+		if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
+			return -1;
+		current_offset += current->de_pathlen + ondisk_size;
+		current = current->next;
+	}
+	current = de;
 	while (current) {
 		uint32_t crc;
 
 		crc = 0;
-		if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen + 1) < 0)
-			return -1;
+		if (current->de_pathlen == 0) {
+			if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen + 1) < 0)
+				return -1;
+		} else {
+			if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen) < 0)
+				return -1;
+			if (ce_write_v5(&crc, fd, "/\0", 2) < 0)
+				return -1;
+		}
 		current->de_foffset = foffset;
 		ondisk = ondisk_from_directory_entry(current);
 		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
@@ -2762,14 +2822,72 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 	return 0;
 }
 
+static int write_entries_v5(struct index_state *istate,
+			    struct directory_entry *de,
+			    int entries,
+			    int fd)
+{
+	int offset, offset_write, ondisk_size;
+	struct directory_entry *current;
+
+	offset = 0;
+	ondisk_size = sizeof(struct ondisk_cache_entry_v5);
+	current = de;
+	while (current) {
+		struct cache_entry *ce = current->ce;
+		while (ce) {
+			if (ce->ce_flags & CE_REMOVE)
+				continue;
+			if (!ce_uptodate(ce) && is_racy_timestamp(istate, ce))
+				ce_smudge_racily_clean_entry_v5(ce);
+
+			offset_write = htonl(offset);
+			if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
+				return -1;
+			offset += ce_namelen(ce) - ce->ce_prefixlen + ondisk_size;
+			ce = ce->next;
+		}
+		current = current->next;
+	}
+	offset = 0;
+	current = de;
+	while (current) {
+		struct cache_entry *ce = current->ce;
+		while (ce) {
+			struct ondisk_cache_entry_v5 *ondisk;
+			uint32_t crc, calc_crc;
+
+			if (ce->ce_flags & CE_REMOVE)
+				continue;
+			calc_crc = htonl(offset);
+			crc = crc32(0, (Bytef*)&calc_crc, 4);
+			if (ce_write_v5(&crc, fd, ce->name + ce->ce_prefixlen,
+					ce_namelen(ce) - ce->ce_prefixlen + 1) < 0)
+				return -1;
+			ondisk = ondisk_from_cache_entry(ce);
+			if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
+				return -1;
+			crc = htonl(crc);
+			if (ce_write_v5(NULL, fd, &crc, 4) < 0)
+				return -1;
+			offset += ce_namelen(ce) - ce->ce_prefixlen + ondisk_size;
+			ce = ce->next;
+		}
+		current = current->next;
+	}
+	return 0;
+}
+
 static int write_index_v5(struct index_state *istate, int newfd)
 {
 	struct cache_version_header hdr;
 	struct cache_header_v5 hdr_v5;
 	struct cache_entry **cache = istate->cache;
 	struct directory_entry *de;
+	struct ondisk_directory_entry *ondisk;
 	int entries = istate->cache_nr;
-	int i, removed, non_conflicted, total_dir_len;
+	int i, removed, non_conflicted, total_dir_len, ondisk_directory_size;
+	unsigned int ndir;
 	uint32_t crc;
 
 	for (i = removed = 0; i < entries; i++) {
@@ -2779,16 +2897,30 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	hdr.hdr_signature = htonl(CACHE_SIGNATURE);
 	hdr.hdr_version = htonl(istate->version);
 	hdr_v5.hdr_nfile = htonl(entries - removed);
-	hdr_v5.hdr_nextension = 0; /* Currently no extensions are supported */
+	hdr_v5.hdr_nextension = htonl(0); /* Currently no extensions are supported */
 
 	non_conflicted = 0;
-	de = find_directories(cache, entries, &hdr_v5.hdr_ndir, &non_conflicted,
+	de = find_directories(cache, entries, &ndir, &non_conflicted,
 			&total_dir_len);
-	hdr_v5.hdr_fblockoffset = sizeof(hdr) + sizeof(hdr_v5) + 4
-		+ hdr_v5.hdr_ndir * 4
+	hdr_v5.hdr_ndir = htonl(ndir);
+
+	/*
+	 * This is needed because the compiler aligns structs to sizes multipe
+	 * of 4
+	 */
+	ondisk_directory_size = sizeof(ondisk->flags)
+		+ sizeof(ondisk->foffset)
+		+ sizeof(ondisk->cr)
+		+ sizeof(ondisk->ncr)
+		+ sizeof(ondisk->nsubtrees)
+		+ sizeof(ondisk->nfiles)
+		+ sizeof(ondisk->nentries)
+		+ sizeof(ondisk->sha1);
+	hdr_v5.hdr_fblockoffset = htonl(sizeof(hdr) + sizeof(hdr_v5) + 4
+		+ ndir * 4
 		+ total_dir_len
-		+ (hdr_v5.hdr_ndir + 4) * sizeof(struct ondisk_directory_entry)
-		+ non_conflicted * 4;
+		+ ndir * (ondisk_directory_size + 4)
+		+ non_conflicted * 4);
 
 	crc = 0;
 	if (ce_write_v5(&crc, newfd, &hdr, sizeof(hdr)) < 0)
@@ -2799,15 +2931,11 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	if (ce_write_v5(NULL, newfd, &crc, 4) < 0)
 		return -1;
 
-	write_directories_v5(de, newfd);
+	if (write_directories_v5(de, newfd) < 0)
+		return -1;
 
-	for (i = 0; i < entries; i++) {
-		struct cache_entry *ce = cache[i];
-		if (ce->ce_flags & CE_REMOVE)
-			continue;
-		if (!ce_uptodate(ce) && is_racy_timestamp(istate, ce))
-			ce_smudge_racily_clean_entry_v5(ce);
-	}
+	if (write_entries_v5(istate, de, entries, newfd) < 0)
+		return -1;
 	return ce_flush_v5(newfd);
 }
 
