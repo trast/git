@@ -1472,7 +1472,8 @@ static struct cache_entry *cache_entry_from_ondisk(struct ondisk_cache_entry *on
 static struct cache_entry *cache_entry_from_ondisk_v5(struct ondisk_cache_entry_v5 *ondisk,
 						   struct directory_entry *de,
 						   char *name,
-						   size_t len)
+						   size_t len,
+						   size_t prefix_len)
 {
 	struct cache_entry *ce = xmalloc(cache_entry_size(len + de->de_pathlen));
 	int flags, flaglen;
@@ -1501,6 +1502,7 @@ static struct cache_entry *cache_entry_from_ondisk_v5(struct ondisk_cache_entry_
 	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
 		ce->ce_flags |= flags & CE_SKIPWORKTREE_V5 << 18;
 	ce->ce_stat_crc   = ntoh_l(ondisk->stat_crc);
+	ce->ce_prefixlen  = prefix_len;
 	hashcpy(ce->sha1, ondisk->sha1);
 	memcpy(ce->name, de->pathname, de->de_pathlen);
 	memcpy(ce->name + de->de_pathlen, name, len);
@@ -1570,6 +1572,7 @@ static struct cache_entry *convert_conflict_part(struct conflict_part *cp,
 	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
 		ce->ce_flags |= cp->flags & CE_SKIPWORKTREE_V5 << 18;
 	ce->ce_stat_crc   = 0;
+	ce->ce_prefixlen  = 0;
 	hashcpy(ce->sha1, cp->sha1);
 	memcpy(ce->name, name, len);
 	ce->name[len] = '\0';
@@ -1713,7 +1716,7 @@ static struct cache_entry *read_entry_v5(struct directory_entry *de,
 	len = strlen(name);
 	disk_ce = (struct ondisk_cache_entry_v5 *)
 			((char *)mmap + *entry_offset + len + 1);
-	ce = cache_entry_from_ondisk_v5(disk_ce, de, name, len);
+	ce = cache_entry_from_ondisk_v5(disk_ce, de, name, len, de->de_pathlen);
 	filecrc = mmap + *entry_offset + len + 1 + sizeof(*disk_ce);
 	foffsetblockcrc = crc32(0, (Bytef*)mmap + *foffsetblock, 4);
 	if (!check_crc32(foffsetblockcrc,

@@ -140,6 +140,7 @@ struct cache_entry {
 	unsigned int ce_flags;
 	unsigned char sha1[20];
 	uint32_t ce_stat_crc;
+	unsigned int ce_prefixlen;
 	struct cache_entry *next;
 	struct cache_entry *dir_next;
 	char name[FLEX_ARRAY]; /* more */
