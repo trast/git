@@ -2604,6 +2604,8 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_nentries   = -1;
 	memset(de->sha1, 0, 20);
 	de->de_pathlen    = len;
+	de->ce            = NULL;
+	de->ce_last       = NULL;
 	return de;
 }
 
