@@ -215,26 +215,26 @@ static int ce_match_stat_basic_v2(struct cache_entry *ce,
 static int match_stat_crc(struct stat *st, uint32_t expected_crc)
 {
 	uint32_t stat_crc = 0;
-	uint32_t *stat = xmalloc(sizeof(uint32_t));
+	uint32_t stat;
 	unsigned int ctimens = 0;
 
-	*stat = htonl(st->st_ctime);
-	stat_crc = crc32(0, (Bytef*)stat, 4);
+	stat = htonl(st->st_ctime);
+	stat_crc = crc32(0, (Bytef*)&stat, 4);
 #ifdef USE_NSEC
-	ctimens = ce->ce_ctime.nsec
+	ctimens = ST_MTIME_NSEC(*st);
 #endif
-	*stat = htonl(ctimens);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(st->st_ino);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(st->st_size);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(st->st_dev);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(st->st_uid);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(st->st_gid);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	stat = htonl(ctimens);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(st->st_ino);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(st->st_size);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(st->st_dev);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(st->st_uid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(st->st_gid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
 
 	return stat_crc == expected_crc;
 }
@@ -2736,7 +2736,7 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 {
 	struct ondisk_cache_entry_v5 *ondisk;
 	uint32_t stat_crc = 0;
-	uint32_t *stat = xmalloc(sizeof(uint32_t));
+	uint32_t stat;
 	unsigned int ctimens = 0;
 
 	ondisk = xcalloc(1, sizeof(struct ondisk_cache_entry_v5));
@@ -2745,23 +2745,23 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
 	ondisk->mtime.nsec = htonl(ce->ce_mtime.nsec);
 
-	*stat = htonl(ce->ce_ctime.sec);
-	stat_crc = crc32(0, (Bytef*)stat, 4);
+	stat = htonl(ce->ce_ctime.sec);
+	stat_crc = crc32(0, (Bytef*)&stat, 4);
 #ifdef USE_NSEC
-	ctimens = ce->ce_ctime.nsec
+	ctimens = ce->ce_ctime.nsec;
 #endif
-	*stat = htonl(ctimens);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(ce->ce_ino);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(ce->ce_size);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(ce->ce_dev);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(ce->ce_uid);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
-	*stat = htonl(ce->ce_gid);
-	stat_crc = crc32(stat_crc, (Bytef*)stat, 4);
+	stat = htonl(ctimens);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_ino);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_size);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_dev);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_uid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_gid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
 	ondisk->stat_crc = htonl(stat_crc);
 	hashcpy(ondisk->sha1, ce->sha1);
 	return ondisk;
