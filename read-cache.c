@@ -1502,7 +1502,6 @@ static struct cache_entry *cache_entry_from_ondisk_v5(struct ondisk_cache_entry_
 	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
 		ce->ce_flags |= flags & CE_SKIPWORKTREE_V5 << 18;
 	ce->ce_stat_crc   = ntoh_l(ondisk->stat_crc);
-	ce->ce_prefixlen  = prefix_len;
 	hashcpy(ce->sha1, ondisk->sha1);
 	memcpy(ce->name, de->pathname, de->de_pathlen);
 	memcpy(ce->name + de->de_pathlen, name, len);
@@ -1572,7 +1571,6 @@ static struct cache_entry *convert_conflict_part(struct conflict_part *cp,
 	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
 		ce->ce_flags |= cp->flags & CE_SKIPWORKTREE_V5 << 18;
 	ce->ce_stat_crc   = 0;
-	ce->ce_prefixlen  = 0;
 	hashcpy(ce->sha1, cp->sha1);
 	memcpy(ce->name, name, len);
 	ce->name[len] = '\0';
@@ -2635,22 +2633,12 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
 			(*non_conflicted)++;
 		dir = super_directory(cache[i]->name, &level);
-		if (!dir) {
-			de->de_nfiles++;
-			if (de->ce == NULL) {
-				de->ce = cache[i];
-				de->ce_last = de->ce;
-				de->ce_last->next = NULL;
-			} else {
-				de->ce_last->next = cache[i];
-				de->ce_last = de->ce_last->next;
-				de->ce_last->next = NULL;
-			}
-			continue;
-		}
-		dir_len = strlen(dir);
+		if (!dir)
+			dir_len = 0;
+		else
+			dir_len = strlen(dir);
 
-		if (prev_level < level
+		if (dir && prev_level < level
 			&& strncmp(current->pathname, dir, current->de_pathlen) != 0) {
 			memset(&list, 0, sizeof(struct string_list));
 			sub = dir;
@@ -2680,7 +2668,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			prev_level = level - 1;
 		}
 
-		if (strncmp(current->pathname, dir, dir_len) != 0) {
+		if (dir && strncmp(current->pathname, dir, dir_len) != 0) {
 			new = init_directory_entry(dir, dir_len);
 			search = current;
 			while (prev_level >= level && search->super) {
@@ -2697,22 +2685,21 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			*total_dir_len += new->de_pathlen + 2;
 		}
 		search = current;
-		while (search->de_pathlen != 0 && strcmp(dir, search->pathname) != 0)
+		while (search->super && strcmp(dir, search->super->pathname) != 0)
 			search = search->super;
-		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
+		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1) {
 			search->de_nfiles++;
-		else
+			if (search->ce == NULL) {
+				search->ce = cache[i];
+				search->ce_last = search->ce;
+				search->ce_last->next = NULL;
+			} else {
+				search->ce_last->next = cache[i];
+				search->ce_last = search->ce_last->next;
+				search->ce_last->next = NULL;
+			}
+		} else
 			search->de_ncr++;
-
-		if (search->ce == NULL) {
-			search->ce = cache[i];
-			search->ce_last = search->ce;
-			search->ce_last->next = NULL;
-		} else {
-			search->ce_last->next = cache[i];
-			search->ce_last = search->ce_last->next;
-			search->ce_last->next = NULL;
-		}
 	}
 	return de;
 }
@@ -2845,7 +2832,7 @@ static int write_entries_v5(struct index_state *istate,
 			offset_write = htonl(offset);
 			if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - ce->ce_prefixlen + ondisk_size;
+			offset += ce_namelen(ce) - current->de_pathlen + ondisk_size;
 			ce = ce->next;
 		}
 		current = current->next;
@@ -2862,8 +2849,8 @@ static int write_entries_v5(struct index_state *istate,
 				continue;
 			calc_crc = htonl(offset);
 			crc = crc32(0, (Bytef*)&calc_crc, 4);
-			if (ce_write_v5(&crc, fd, ce->name + ce->ce_prefixlen,
-					ce_namelen(ce) - ce->ce_prefixlen + 1) < 0)
+			if (ce_write_v5(&crc, fd, ce->name + current->de_pathlen,
+					ce_namelen(ce) - current->de_pathlen + 1) < 0)
 				return -1;
 			ondisk = ondisk_from_cache_entry(ce);
 			if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
@@ -2871,7 +2858,7 @@ static int write_entries_v5(struct index_state *istate,
 			crc = htonl(crc);
 			if (ce_write_v5(NULL, fd, &crc, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - ce->ce_prefixlen + ondisk_size;
+			offset += ce_namelen(ce) - current->de_pathlen + ondisk_size;
 			ce = ce->next;
 		}
 		current = current->next;
