@@ -1258,7 +1258,7 @@ static struct cache_entry *refresh_cache_entry(struct cache_entry *ce, int reall
  * Index File I/O
  *****************************************************************/
 
-#define INDEX_FORMAT_DEFAULT 3
+#define INDEX_FORMAT_DEFAULT 5
 
 /*
  * dev/ino/uid/gid/size are also just tracked to the low 32 bits
