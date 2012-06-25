@@ -2623,6 +2623,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	de = init_directory_entry("", 0);
 	current = de;
 	de->super = NULL;
+	de->next = NULL;
 	prev_level = 0;
 	level = 0;
 	*ndir = 1;
