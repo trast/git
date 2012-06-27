@@ -1694,7 +1694,7 @@ static struct directory_entry *read_directories_v5(unsigned long *dir_offset,
 	return de;
 unmap:
 	munmap(mmap, mmap_size);
-	die("directory crc doesn't match for '%s'", current->pathname);
+	die("directory crc doesn't match for '%s'", de->pathname);
 }
 
 static struct cache_entry *read_entry_v5(struct directory_entry *de,
