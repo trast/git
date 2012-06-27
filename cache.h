@@ -147,7 +147,7 @@ struct cache_entry {
 
 struct directory_entry {
 	struct directory_entry *next;
-	struct directory_entry *super;
+	struct directory_entry *next_hash;
 	struct cache_entry *ce;
 	struct cache_entry *ce_last;
 	unsigned int de_foffset;

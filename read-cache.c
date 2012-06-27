@@ -2613,20 +2613,22 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 						int *non_conflicted,
 						int *total_dir_len)
 {
-	int i, k, dir_len, level, prev_level;
-	char *dir, *sub;
-	struct directory_entry *de, *current, *search, *new;
-	struct string_list list;
+	int i, dir_len, level;
+	char *dir;
+	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
+	struct hash_table table;
+	unsigned int crc;
 
+	init_hash(&table);
 	de = init_directory_entry("", 0);
 	current = de;
-	de->super = NULL;
+	de->next_hash = NULL;
 	de->next = NULL;
-	prev_level = 0;
-	level = 0;
 	*ndir = 1;
 	*total_dir_len = 1;
 	current = de;
+	crc = crc32(0, (Bytef*)de->pathname, de->de_pathlen);
+	insert_hash(crc, de, &table);
 	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
 			continue;
@@ -2637,56 +2639,30 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			dir_len = 0;
 		else
 			dir_len = strlen(dir);
+		crc = crc32(0, (Bytef*)dir, dir_len);
+		found = lookup_hash(crc, &table);
+		search = found;
+		while (search && dir_len != 0 && strcmp(dir, search->pathname) != 0)
+			search = search->next_hash;
+		if (!search || !found) {
+			struct directory_entry *insert;
 
-		if (dir && prev_level < level
-			&& strncmp(current->pathname, dir, current->de_pathlen) != 0) {
-			memset(&list, 0, sizeof(struct string_list));
-			sub = dir;
-			while (prev_level + 1 <= level) {
-				int l;
-
-				sub = super_directory(sub, &l);
-				string_list_append(&list, sub);
-				prev_level++;
-			}
-			for (k = list.nr - 1; k >= 0; k--) {
-				new = init_directory_entry(list.items[k].string,
-						strlen(list.items[k].string));
-				search = current;
-				if (k == list.nr - 1)
-					new->super = current->super;
-				else
-					new->super = current;
-				new->super->de_nsubtrees++;
-				current->next = new;
-				current = current->next;
-				current->next = NULL;
-				(*ndir)++;
-				*total_dir_len += new->de_pathlen + 2;
-			}
-			string_list_clear(&list, 0);
-			prev_level = level - 1;
-		}
-
-		if (dir && strncmp(current->pathname, dir, dir_len) != 0) {
 			new = init_directory_entry(dir, dir_len);
-			search = current;
-			while (prev_level >= level && search->super) {
-				search = search->super;
-				prev_level--;
+			new->next_hash = NULL;
+			new->next = NULL;
+			new->de_nfiles = 0;
+			insert = (struct directory_entry *)insert_hash(crc, new, &table);
+			if (insert) {
+				while (insert->next_hash)
+					insert = insert->next_hash;
+				insert->next_hash = new;
 			}
-			new->super = search;
-			new->super->de_nsubtrees++;
 			current->next = new;
 			current = current->next;
-			current->next = NULL;
-			prev_level = level;
 			(*ndir)++;
 			*total_dir_len += new->de_pathlen + 2;
+			search = current;
 		}
-		search = current;
-		while (search->super && strcmp(dir, search->super->pathname) != 0)
-			search = search->super;
 		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1) {
 			search->de_nfiles++;
 			if (search->ce == NULL) {
@@ -2700,6 +2676,56 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			}
 		} else
 			search->de_ncr++;
+		if (dir && (!found)) {
+			struct directory_entry *no_subtrees;
+
+			no_subtrees = current;
+			dir = super_directory(dir, &level);
+			if (dir)
+				dir_len = strlen(dir);
+			else
+				dir_len = 0;
+			crc = crc32(0, (Bytef*)dir, dir_len);
+			found = lookup_hash(crc, &table);
+			while (!found) {
+				struct directory_entry *insert;
+
+				new = init_directory_entry(dir, dir_len);
+				new->next_hash = NULL;
+				new->next = NULL;
+				new->de_nsubtrees = 1;
+				insert = (struct directory_entry *)insert_hash(crc, new, &table);
+				if (insert) {
+					while (insert->next_hash)
+						insert = insert->next_hash;
+					insert->next_hash = new;
+				}
+				new->next = no_subtrees;
+				no_subtrees = new;
+				current = new;
+				(*ndir)++;
+				*total_dir_len += new->de_pathlen + 2;
+				dir = super_directory(dir, &level);
+				if (!dir)
+					dir_len = 0;
+				else
+					dir_len = strlen(dir);
+				crc = crc32(0, (Bytef*)dir, dir_len);
+				found = lookup_hash(crc, &table);
+			}
+			search = found;
+			while (search->next_hash && strcmp(dir, search->pathname) != 0)
+				search = search->next_hash;
+			if (search)
+				found = search;
+			if (no_subtrees) {
+				previous_entry->next = no_subtrees;
+			}
+			found->de_nsubtrees++;
+		}
+		while (current->next)
+			current = current->next;
+		previous_entry = current;
 	}
 	return de;
 }
@@ -2777,10 +2803,16 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 	current_offset = 0;
 	foffset = 0;
 	while (current) {
+		int pathlen;
+
 		offset_write = htonl(current_offset);
 		if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
 			return -1;
-		current_offset += current->de_pathlen + ondisk_size;
+		if (current->de_pathlen == 0)
+			pathlen = 0;
+		else
+			pathlen = current->de_pathlen + 1;
+		current_offset += pathlen + 1 + ondisk_size;
 		current = current->next;
 	}
 	current = de;
@@ -2822,7 +2854,13 @@ static int write_entries_v5(struct index_state *istate,
 	ondisk_size = sizeof(struct ondisk_cache_entry_v5);
 	current = de;
 	while (current) {
+		int pathlen;
 		struct cache_entry *ce = current->ce;
+
+		if (current->de_pathlen == 0)
+			pathlen = 0;
+		else
+			pathlen = current->de_pathlen + 1;
 		while (ce) {
 			if (ce->ce_flags & CE_REMOVE)
 				continue;
@@ -2832,7 +2870,7 @@ static int write_entries_v5(struct index_state *istate,
 			offset_write = htonl(offset);
 			if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - current->de_pathlen + ondisk_size;
+			offset += ce_namelen(ce) - pathlen + ondisk_size;
 			ce = ce->next;
 		}
 		current = current->next;
@@ -2840,7 +2878,13 @@ static int write_entries_v5(struct index_state *istate,
 	offset = 0;
 	current = de;
 	while (current) {
+		int pathlen;
 		struct cache_entry *ce = current->ce;
+
+		if (current->de_pathlen == 0)
+			pathlen = 0;
+		else
+			pathlen = current->de_pathlen + 1;
 		while (ce) {
 			struct ondisk_cache_entry_v5 *ondisk;
 			uint32_t crc, calc_crc;
@@ -2849,8 +2893,8 @@ static int write_entries_v5(struct index_state *istate,
 				continue;
 			calc_crc = htonl(offset);
 			crc = crc32(0, (Bytef*)&calc_crc, 4);
-			if (ce_write_v5(&crc, fd, ce->name + current->de_pathlen,
-					ce_namelen(ce) - current->de_pathlen + 1) < 0)
+			if (ce_write_v5(&crc, fd, ce->name + pathlen,
+					ce_namelen(ce) - pathlen + 1) < 0)
 				return -1;
 			ondisk = ondisk_from_cache_entry(ce);
 			if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
@@ -2858,7 +2902,7 @@ static int write_entries_v5(struct index_state *istate,
 			crc = htonl(crc);
 			if (ce_write_v5(NULL, fd, &crc, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - current->de_pathlen + ondisk_size;
+			offset += ce_namelen(ce) - pathlen + ondisk_size;
 			ce = ce->next;
 		}
 		current = current->next;
