@@ -2219,11 +2219,11 @@ static int ce_write(git_SHA_CTX *context, int fd, void *data, unsigned int len)
 
 static int ce_write_v5(uint32_t *crc, int fd, void *data, unsigned int len)
 {
+	if (crc)
+		*crc = crc32(*crc, (Bytef*)data, len);
 	while (len) {
 		unsigned int buffered = write_buffer_len;
 		unsigned int partial = WRITE_BUFFER_SIZE - buffered;
-		if (crc)
-			*crc = crc32(*crc, (Bytef*)data, len);
 		if (partial > len)
 			partial = len;
 		memcpy(write_buffer + buffered, data, partial);
@@ -2563,18 +2563,16 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	return 0;
 }
 
-static char *super_directory(char *filename, int *level)
+static char *super_directory(char *filename)
 {
 	char *prev, *last, *dir_name;
 	int last_slash_pos;
 
 	prev = NULL;
 	dir_name = NULL;
-	*level = 0;
 	last = strchr(filename, '/');
 	while (last != NULL)
 	{
-		(*level)++;
 		prev = last;
 		last = strchr(last + 1, '/');
 	}
@@ -2613,7 +2611,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 						int *non_conflicted,
 						int *total_dir_len)
 {
-	int i, dir_len, level;
+	int i, dir_len;
 	char *dir;
 	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
 	struct hash_table table;
@@ -2621,12 +2619,11 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 
 	init_hash(&table);
 	de = init_directory_entry("", 0);
-	current = de;
 	de->next_hash = NULL;
 	de->next = NULL;
+	current = de;
 	*ndir = 1;
 	*total_dir_len = 1;
-	current = de;
 	crc = crc32(0, (Bytef*)de->pathname, de->de_pathlen);
 	insert_hash(crc, de, &table);
 	for (i = 0; i < nfile; i++) {
@@ -2634,7 +2631,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			continue;
 		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
 			(*non_conflicted)++;
-		dir = super_directory(cache[i]->name, &level);
+		dir = super_directory(cache[i]->name);
 		if (!dir)
 			dir_len = 0;
 		else
@@ -2644,6 +2641,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 		search = found;
 		while (search && dir_len != 0 && strcmp(dir, search->pathname) != 0)
 			search = search->next_hash;
+		previous_entry = current;
 		if (!search || !found) {
 			struct directory_entry *insert;
 
@@ -2680,7 +2678,7 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 			struct directory_entry *no_subtrees;
 
 			no_subtrees = current;
-			dir = super_directory(dir, &level);
+			dir = super_directory(dir);
 			if (dir)
 				dir_len = strlen(dir);
 			else
@@ -2702,10 +2700,9 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 				}
 				new->next = no_subtrees;
 				no_subtrees = new;
-				current = new;
 				(*ndir)++;
 				*total_dir_len += new->de_pathlen + 2;
-				dir = super_directory(dir, &level);
+				dir = super_directory(dir);
 				if (!dir)
 					dir_len = 0;
 				else
@@ -2718,14 +2715,9 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 				search = search->next_hash;
 			if (search)
 				found = search;
-			if (no_subtrees) {
-				previous_entry->next = no_subtrees;
-			}
 			found->de_nsubtrees++;
+			previous_entry->next = no_subtrees;
 		}
-		while (current->next)
-			current = current->next;
-		previous_entry = current;
 	}
 	return de;
 }
@@ -2792,6 +2784,7 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 	struct directory_entry *current;
 	struct ondisk_directory_entry *ondisk;
 	int current_offset, offset_write, ondisk_size, foffset;
+	uint32_t crc;
 
 	/*
 	 * This is needed because the compiler aligns structs to sizes multipe
@@ -2823,16 +2816,16 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 	}
 	current = de;
 	while (current) {
-		uint32_t crc;
-
 		crc = 0;
 		if (current->de_pathlen == 0) {
-			if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen + 1) < 0)
+			if (ce_write_v5(&crc, fd, current->pathname, 1) < 0)
 				return -1;
 		} else {
-			if (ce_write_v5(&crc, fd, current->pathname, current->de_pathlen) < 0)
-				return -1;
-			if (ce_write_v5(&crc, fd, "/\0", 2) < 0)
+			char *path;
+			path = xmalloc(sizeof(char) * (current->de_pathlen + 2));
+			memcpy(path, current->pathname, current->de_pathlen);
+			memcpy(path + current->de_pathlen, "/\0", 2);
+			if (ce_write_v5(&crc, fd, path, current->de_pathlen + 2) < 0)
 				return -1;
 		}
 		current->de_foffset = foffset;
