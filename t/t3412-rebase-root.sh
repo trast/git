@@ -22,6 +22,11 @@ test_expect_success 'prepare repository' '
 	test_commit 4 B
 '
 
+test_expect_success 'rebase --root fails with too many args' '
+	git checkout -B fail other &&
+	test_must_fail git rebase --onto master --root fail fail
+'
+
 test_expect_success 'setup pre-rebase hook' '
 	mkdir -p .git/hooks &&
 	cat >.git/hooks/pre-rebase <<EOF &&
@@ -38,7 +43,7 @@ cat > expect <<EOF
 EOF
 
 test_expect_success 'rebase --root --onto <newbase>' '
-	git checkout -b work &&
+	git checkout -b work other &&
 	git rebase --root --onto master &&
 	git log --pretty=tformat:"%s" > rebased &&
 	test_cmp expect rebased
