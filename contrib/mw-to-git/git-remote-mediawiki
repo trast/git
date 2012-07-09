@@ -23,9 +23,6 @@
 # - Git renames could be turned into MediaWiki renames (see TODO
 #   below)
 #
-# - login/password support requires the user to write the password
-#   cleartext in a file (see TODO below).
-#
 # - No way to import "one page, and all pages included in it"
 #
 # - Multiple remote MediaWikis have not been very well tested.
@@ -76,9 +73,7 @@ chomp($import_media);
 $import_media = ($import_media eq "true");
 
 my $wiki_login = run_git("config --get remote.". $remotename .".mwLogin");
-# TODO: ideally, this should be able to read from keyboard, but we're
-# inside a remote helper, so our stdin is connect to git, not to a
-# terminal.
+# Note: mwPassword is discourraged. Use the credential system instead.
 my $wiki_passwd = run_git("config --get remote.". $remotename .".mwPassword");
 my $wiki_domain = run_git("config --get remote.". $remotename .".mwDomain");
 chomp($wiki_login);
