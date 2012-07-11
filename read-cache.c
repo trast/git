@@ -2597,7 +2597,7 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_ncr        = 0;
 	de->de_nsubtrees  = 0;
 	de->de_nfiles     = 0;
-	de->de_nentries   = -1;
+	de->de_nentries   = 0;
 	memset(de->sha1, 0, 20);
 	de->de_pathlen    = len;
 	de->ce            = NULL;
@@ -2605,7 +2605,7 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	return de;
 }
 
-static struct directory_entry *find_directories(struct cache_entry **cache,
+static struct directory_entry *find_directories(struct index_state *istate,
 						int nfile,
 						unsigned int *ndir,
 						int *non_conflicted,
@@ -2614,8 +2614,9 @@ static struct directory_entry *find_directories(struct cache_entry **cache,
 	int i, dir_len;
 	char *dir;
 	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
+	struct cache_entry **cache = istate->cache;
 	struct hash_table table;
-	unsigned int crc;
+	uint32_t crc;
 
 	init_hash(&table);
 	de = init_directory_entry("", 0);
@@ -2931,7 +2932,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	hdr_v5.hdr_nextension = htonl(0); /* Currently no extensions are supported */
 
 	non_conflicted = 0;
-	de = find_directories(cache, entries, &ndir, &non_conflicted,
+	de = find_directories(istate, entries, &ndir, &non_conflicted,
 			&total_dir_len);
 	hdr_v5.hdr_ndir = htonl(ndir);
 
