@@ -1331,7 +1331,6 @@ struct conflict_queue {
 	struct conflict_entry *ce;
 };
 
-
 struct ondisk_conflict_part {
 	unsigned short flags;
 	unsigned short entry_mode;
@@ -2602,19 +2601,65 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_pathlen    = len;
 	de->ce            = NULL;
 	de->ce_last       = NULL;
+	de->conflict      = NULL;
+	de->conflict_last = NULL;
 	return de;
+}
+
+static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directory_entry *de)
+{
+	struct ondisk_directory_entry *ondisk;
+
+	ondisk = xcalloc(1, sizeof(struct ondisk_directory_entry));
+	ondisk->foffset   = htonl(de->de_foffset);
+	ondisk->cr        = htonl(de->de_cr);
+	ondisk->ncr       = htonl(de->de_ncr);
+	ondisk->nsubtrees = htonl(de->de_nsubtrees);
+	ondisk->nfiles    = htonl(de->de_nfiles);
+	ondisk->nentries  = htonl(de->de_nentries);
+	hashcpy(ondisk->sha1, de->sha1);
+	ondisk->flags     = htons(de->de_flags);
+	return ondisk;
+}
+
+static struct conflict_part *conflict_part_from_inmemory(struct cache_entry *ce)
+{
+	struct conflict_part *conflict;
+	int flags;
+
+	conflict = xmalloc(sizeof(struct conflict_part));
+	flags                = CONFLICT_CONFLICTED;
+	flags               |= ce_stage(ce) << CONFLICT_STAGESHIFT;
+	conflict->flags      = flags;
+	conflict->entry_mode = ce->ce_mode;
+	conflict->next       = NULL;
+	hashcpy(conflict->sha1, ce->sha1);
+	return conflict;
+}
+
+static struct ondisk_conflict_part *conflict_to_ondisk(struct conflict_part *cp)
+{
+	struct ondisk_conflict_part *ondisk;
+	
+	ondisk = xcalloc(1, sizeof(struct ondisk_conflict_part));
+	ondisk->flags      = htonl(cp->flags);
+	ondisk->entry_mode = htonl(cp->entry_mode);
+	hashcpy(ondisk->sha1, cp->sha1);
+	return ondisk;
 }
 
 static struct directory_entry *find_directories(struct index_state *istate,
 						int nfile,
 						unsigned int *ndir,
 						int *non_conflicted,
-						int *total_dir_len)
+						int *total_dir_len,
+						int *total_file_len)
 {
 	int i, dir_len;
 	char *dir;
 	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
 	struct cache_entry **cache = istate->cache;
+	struct conflict_queue *conflict_queue, *conflict_queue_current;
 	struct hash_table table;
 	uint32_t crc;
 
@@ -2627,10 +2672,11 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	*total_dir_len = 1;
 	crc = crc32(0, (Bytef*)de->pathname, de->de_pathlen);
 	insert_hash(crc, de, &table);
+	conflict_queue_current = NULL;
 	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
 			continue;
-		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1)
+		if (ce_stage(cache[i]) <= 1)
 			(*non_conflicted)++;
 		dir = super_directory(cache[i]->name);
 		if (!dir)
@@ -2662,8 +2708,9 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			*total_dir_len += new->de_pathlen + 2;
 			search = current;
 		}
-		if ((cache[i]->ce_flags & CE_STAGEMASK) << CE_STAGESHIFT <= 1) {
+		if (ce_stage(cache[i]) <= 1) {
 			search->de_nfiles++;
+			*total_file_len += ce_namelen(cache[i]);
 			if (search->ce == NULL) {
 				search->ce = cache[i];
 				search->ce_last = search->ce;
@@ -2673,8 +2720,50 @@ static struct directory_entry *find_directories(struct index_state *istate,
 				search->ce_last = search->ce_last->next;
 				search->ce_last->next = NULL;
 			}
-		} else
+		}
+		if (ce_stage(cache[i]) == 1) {
+			struct conflict_entry *conflict_entry;
+			struct conflict_part *conflict_part;
+
 			search->de_ncr++;
+			search->conflict_size += ce_namelen(cache[i]) + 8;
+			search->conflict_size += sizeof(struct ondisk_conflict_part);
+
+			conflict_queue = xmalloc(sizeof(struct conflict_queue));
+			conflict_entry = xmalloc(conflict_entry_size(ce_namelen(cache[i])));
+			conflict_entry->nfileconflicts = 1;
+			conflict_entry->namelen = ce_namelen(cache[i]);
+			memcpy(conflict_entry->name, cache[i]->name, ce_namelen(cache[i]));
+			conflict_part = conflict_part_from_inmemory(cache[i]);
+			conflict_entry->entries = conflict_part;
+			conflict_queue->ce = conflict_entry;
+			conflict_queue->next = NULL;
+			if (conflict_queue_current)
+				conflict_queue_current->next = conflict_queue;
+			conflict_queue_current = conflict_queue;
+
+			if (search->conflict == NULL) {
+				search->conflict = conflict_queue;
+				search->conflict_last = search->conflict;
+				search->conflict_last->next = NULL;
+			} else {
+				search->conflict_last->next = conflict_queue;
+				search->conflict_last = search->conflict_last->next;
+				search->conflict_last->next = NULL;
+			}
+		}
+		if (ce_stage(cache[i]) > 1) {
+			struct conflict_part *conflict_search, *conflict_part;
+
+			conflict_part = conflict_part_from_inmemory(cache[i]);
+			conflict_search = conflict_queue_current->ce->entries;
+			conflict_queue_current->ce->nfileconflicts++;
+			while (conflict_search->next)
+				conflict_search = conflict_search->next;
+			conflict_search->next = conflict_part;
+
+			search->conflict_size += sizeof(struct ondisk_conflict_part);
+		}
 		if (dir && (!found)) {
 			struct directory_entry *no_subtrees;
 
@@ -2725,22 +2814,6 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	return de;
 }
 
-static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directory_entry *de)
-{
-	struct ondisk_directory_entry *ondisk;
-
-	ondisk = xcalloc(1, sizeof(struct ondisk_directory_entry));
-	ondisk->foffset   = htonl(de->de_foffset);
-	ondisk->cr        = htonl(de->de_cr);
-	ondisk->ncr       = htonl(de->de_ncr);
-	ondisk->nsubtrees = htonl(de->de_nsubtrees);
-	ondisk->nfiles    = htonl(de->de_nfiles);
-	ondisk->nentries  = htonl(de->de_nentries);
-	hashcpy(ondisk->sha1, de->sha1);
-	ondisk->flags     = htons(de->de_flags);
-	return ondisk;
-}
-
 static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry *ce)
 {
 	struct ondisk_cache_entry_v5 *ondisk;
@@ -2782,7 +2855,7 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	return ondisk;
 }
 
-static int write_directories_v5(struct directory_entry *de, int fd)
+static int write_directories_v5(struct directory_entry *de, int fd, int conflict_offset)
 {
 	struct directory_entry *current;
 	struct ondisk_directory_entry *ondisk;
@@ -2832,6 +2905,8 @@ static int write_directories_v5(struct directory_entry *de, int fd)
 				return -1;
 		}
 		current->de_foffset = foffset;
+		current->de_cr = conflict_offset;
+		conflict_offset += current->conflict_size;
 		ondisk = ondisk_from_directory_entry(current);
 		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
 			return -1;
@@ -2912,6 +2987,55 @@ static int write_entries_v5(struct index_state *istate,
 	return 0;
 }
 
+static int write_conflict_v5(struct conflict_queue *conflict, int fd)
+{
+	struct conflict_queue *current;
+	struct conflict_part *current_part;
+	uint32_t crc;
+
+	current = conflict;
+	while (current) {
+		unsigned int to_write;
+
+		crc = 0;
+		if (ce_write_v5(&crc, fd, (Bytef*)current->ce->name, current->ce->namelen) < 0)
+			return -1;
+		to_write = htonl(current->ce->nfileconflicts);
+		if (ce_write_v5(&crc, fd, (Bytef*)&to_write, 4) < 0)
+			return -1;
+		current_part = current->ce->entries;
+		while (current_part) {
+			struct ondisk_conflict_part *ondisk;
+
+			ondisk = conflict_to_ondisk(current_part);
+			if (ce_write_v5(&crc, fd, (Bytef*)ondisk, sizeof(struct ondisk_conflict_part)) < 0)
+				return 0;
+			current_part = current_part->next;
+		}
+		to_write = htonl(crc);
+		if (ce_write_v5(NULL, fd, (Bytef*)&to_write, 4) < 0)
+			return -1;
+		current = current->next;
+	}
+	return 0;
+}
+
+static int write_conflicts_v5(struct index_state *istate,
+			      struct directory_entry *de,
+			      int fd)
+{
+	struct directory_entry *current;
+
+	current = de;
+	while (current) {
+		if (current->de_ncr != 0)
+			if (write_conflict_v5(current->conflict, fd) < 0)
+				return -1;
+		current = current->next;
+	}
+	return 0;
+}
+
 static int write_index_v5(struct index_state *istate, int newfd)
 {
 	struct cache_version_header hdr;
@@ -2921,6 +3045,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	struct ondisk_directory_entry *ondisk;
 	int entries = istate->cache_nr;
 	int i, removed, non_conflicted, total_dir_len, ondisk_directory_size;
+	int total_file_len, conflict_offset;
 	unsigned int ndir;
 	uint32_t crc;
 
@@ -2934,8 +3059,10 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	hdr_v5.hdr_nextension = htonl(0); /* Currently no extensions are supported */
 
 	non_conflicted = 0;
+	total_dir_len = 0;
+	total_file_len = 0;
 	de = find_directories(istate, entries, &ndir, &non_conflicted,
-			&total_dir_len);
+			&total_dir_len, &total_file_len);
 	hdr_v5.hdr_ndir = htonl(ndir);
 
 	/*
@@ -2965,10 +3092,19 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	if (ce_write_v5(NULL, newfd, &crc, 4) < 0)
 		return -1;
 
-	if (write_directories_v5(de, newfd) < 0)
+	conflict_offset =sizeof(hdr) + sizeof(hdr_v5) + 4
+		+ ndir * 4
+		+ total_dir_len
+		+ ndir * (ondisk_directory_size + 4)
+		+ non_conflicted * 4
+		+ total_file_len
+		+ (entries - removed) * (sizeof(struct ondisk_cache_entry_v5) + 4);
+	if (write_directories_v5(de, newfd, conflict_offset) < 0)
 		return -1;
 
 	if (write_entries_v5(istate, de, entries, newfd) < 0)
+		return -1;
+	if (write_conflicts_v5(istate, de, newfd) < 0)
 		return -1;
 	return ce_flush_v5(newfd);
 }

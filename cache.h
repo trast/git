@@ -150,6 +150,9 @@ struct directory_entry {
 	struct directory_entry *next_hash;
 	struct cache_entry *ce;
 	struct cache_entry *ce_last;
+	struct conflict_queue *conflict;
+	struct conflict_queue *conflict_last;
+	unsigned int conflict_size;
 	unsigned int de_foffset;
 	unsigned int de_cr;
 	unsigned int de_ncr;
@@ -182,9 +185,13 @@ struct conflict_entry {
 #define CE_EXTENDED  (0x4000)
 #define CE_VALID     (0x8000)
 #define CE_STAGESHIFT 12
-#define CONFLICT_MASK (0xf0)
 #define CE_INTENTTOADD_V5  (0x8000)
 #define CE_SKIPWORKTREE_V5 (0x0f00)
+
+#define CONFLICT_MASK (0xf0)
+#define CONFLICT_CONFLICTED (0x8000)
+#define CONFLICT_STAGESHIFT 13
+#define CONFLICT_STAGEMASK (0x6000)
 
 /*
  * Range 0xFFFF0000 in ce_flags is divided into
@@ -264,6 +271,8 @@ static inline size_t ce_namelen(const struct cache_entry *ce)
 #define ce_uptodate(ce) ((ce)->ce_flags & CE_UPTODATE)
 #define ce_skip_worktree(ce) ((ce)->ce_flags & CE_SKIP_WORKTREE)
 #define ce_mark_uptodate(ce) ((ce)->ce_flags |= CE_UPTODATE)
+
+#define conflict_stage(c) ((CONFLICT_STAGEMASK & (c)->flags >> CONFLICT_STAGESHIFT))
 
 #define ce_permissions(mode) (((mode) & 0100) ? 0755 : 0644)
 static inline unsigned int create_ce_mode(unsigned int mode)
