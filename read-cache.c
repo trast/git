@@ -468,7 +468,6 @@ int df_name_compare(const char *name1, int len1, int mode1,
 
 int cache_name_compare(const char *name1, int flags1, const char *name2, int flags2)
 {
-	/* TODO: This possibly can be replaced with something faster */
 	int len1 = flags1 & CE_NAMEMASK;
 	int len2 = flags2 & CE_NAMEMASK;
 	int len = len1 < len2 ? len1 : len2;
@@ -1533,7 +1532,7 @@ static struct conflict_part *conflict_part_from_ondisk(struct ondisk_conflict_pa
 {
 	struct conflict_part *cp = xmalloc(sizeof(struct conflict_part));
 
-	cp->flags      = ntoh_s(ondisk->flags >> 1) & CE_STAGEMASK;
+	cp->flags      = ntoh_s(ondisk->flags);
 	cp->entry_mode = ntoh_s(ondisk->entry_mode);
 	hashcpy(cp->sha1, ondisk->sha1);
 	return cp;
@@ -1545,7 +1544,6 @@ static struct cache_entry *convert_conflict_part(struct conflict_part *cp,
 {
 
 	struct cache_entry *ce = xmalloc(cache_entry_size(len));
-	int flaglen;
 
 	ce->ce_ctime.sec  = 0;
 	ce->ce_mtime.sec  = 0;
@@ -1558,17 +1556,10 @@ static struct cache_entry *convert_conflict_part(struct conflict_part *cp,
 	ce->ce_gid        = 0;
 	ce->ce_size       = 0;
 	if (len >= CE_NAMEMASK)
-		flaglen = CE_NAMEMASK;
-	else
-		flaglen = len;
+		len = CE_NAMEMASK;
 	ce->ce_flags      = 0;
-	ce->ce_flags     |= flaglen;
-	ce->ce_flags     |= cp->flags & CE_STAGEMASK;
-	ce->ce_flags     |= cp->flags & CE_VALID;
-	if (ce->ce_flags | CE_INTENTTOADD_V5)
-		ce->ce_flags |= cp->flags & CE_INTENTTOADD_V5 << 15;
-	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
-		ce->ce_flags |= cp->flags & CE_SKIPWORKTREE_V5 << 18;
+	ce->ce_flags     |= len;
+	ce->ce_flags     |= conflict_stage(cp) << CE_STAGESHIFT;
 	ce->ce_stat_crc   = 0;
 	hashcpy(ce->sha1, cp->sha1);
 	memcpy(ce->name, name, len);
@@ -1727,20 +1718,12 @@ unmap:
 	die("file crc doesn't match for '%s'", ce->name);
 }
 
-static struct directory_entry *read_entries_v5(struct index_state *istate,
-					struct directory_entry *de,
-					unsigned long *entry_offset,
-					void *mmap,
-					unsigned long mmap_size,
-					int *nr,
-					unsigned int *foffsetblock,
-					int something_in_queue)
+static struct conflict_queue *read_conflicts_v5(struct directory_entry *de,
+						void *mmap,
+						unsigned long mmap_size)
 {
-	struct entry_queue *queue, *current;
 	struct conflict_queue *conflict_queue, *conflict_current;
-	unsigned int croffset;
-	int i;
-
+	unsigned int croffset, i;
 
 	conflict_queue = xmalloc(sizeof(struct conflict_queue));
 	conflict_current = conflict_queue;
@@ -1764,7 +1747,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 
 		ce = xmalloc(conflict_entry_size(len + de->de_pathlen));
 		memcpy(ce->name, de->pathname, de->de_pathlen);
-		memcpy(ce->name, name, len);
+		memcpy(ce->name + de->de_pathlen, name, len);
 		ce->name[de->de_pathlen + len] = '\0';
 		ce->namelen = de->de_pathlen + len;
 		ce->nfileconflicts = ntoh_l(*nfileconflicts);
@@ -1772,18 +1755,20 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		for (k = 0; k < ce->nfileconflicts; k++) {
 			struct ondisk_conflict_part *ondisk;
 			struct conflict_part *cp;
+
 			ondisk = mmap + croffset;
 			cp = conflict_part_from_ondisk(ondisk);
 			cp->next = NULL;
-			if (!cp_current) {
-				ce->entries = cp;
-				cp_current = cp;
-			} else {
-				cp_current->next = cp;
-				cp_current = cp_current->next;
+			if (conflict_stage(cp) != 1) {
+				if (!cp_current) {
+					ce->entries = cp;
+					cp_current = cp;
+				} else {
+					cp_current->next = cp;
+					cp_current = cp_current->next;
+				}
 			}
-
-			croffset += sizeof(*ondisk);
+			croffset += sizeof(struct ondisk_conflict_part);
 		}
 		conflict_current->ce = ce;
 		conflict_current->next = xmalloc(sizeof(struct conflict_queue));
@@ -1791,6 +1776,23 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		conflict_current->ce = NULL;
 		conflict_current->next = NULL;
 	}
+	return conflict_queue;
+}
+
+static struct directory_entry *read_entries_v5(struct index_state *istate,
+					struct directory_entry *de,
+					unsigned long *entry_offset,
+					void *mmap,
+					unsigned long mmap_size,
+					int *nr,
+					unsigned int *foffsetblock,
+					int something_in_queue)
+{
+	struct entry_queue *queue, *current;
+	struct conflict_queue *conflict_queue, *conflict_current;
+	int i;
+
+	conflict_queue = read_conflicts_v5(de, mmap, mmap_size);
 
 	queue = xmalloc(sizeof(struct entry_queue));
 	current = queue;
@@ -1814,8 +1816,8 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		/* Add the conflicted entries at the end of the index file
 		 * to the in memory format
 		 */
-		if (conflict_queue->ce != NULL &&
-		    (conflict_queue->ce->entries->flags & CONFLICT_MASK) == 0 &&
+		if (conflict_queue->ce &&
+		    (conflict_queue->ce->entries->flags & CONFLICT_CONFLICTED) != 0 &&
 		    strcmp(conflict_queue->ce->name, ce->name) == 0) {
 			struct conflict_part *cp, *current_cp;
 			cp = conflict_queue->ce->entries;

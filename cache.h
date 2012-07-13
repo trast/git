@@ -188,7 +188,6 @@ struct conflict_entry {
 #define CE_INTENTTOADD_V5  (0x8000)
 #define CE_SKIPWORKTREE_V5 (0x0f00)
 
-#define CONFLICT_MASK (0xf0)
 #define CONFLICT_CONFLICTED (0x8000)
 #define CONFLICT_STAGESHIFT 13
 #define CONFLICT_STAGEMASK (0x6000)
@@ -272,7 +271,7 @@ static inline size_t ce_namelen(const struct cache_entry *ce)
 #define ce_skip_worktree(ce) ((ce)->ce_flags & CE_SKIP_WORKTREE)
 #define ce_mark_uptodate(ce) ((ce)->ce_flags |= CE_UPTODATE)
 
-#define conflict_stage(c) ((CONFLICT_STAGEMASK & (c)->flags >> CONFLICT_STAGESHIFT))
+#define conflict_stage(c) ((CONFLICT_STAGEMASK & (c)->flags) >> CONFLICT_STAGESHIFT)
 
 #define ce_permissions(mode) (((mode) & 0100) ? 0755 : 0644)
 static inline unsigned int create_ce_mode(unsigned int mode)
