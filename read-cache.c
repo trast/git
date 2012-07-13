@@ -2627,7 +2627,7 @@ static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directo
 static struct conflict_part *conflict_part_from_inmemory(struct cache_entry *ce)
 {
 	struct conflict_part *conflict;
-	int flags;
+	short flags;
 
 	conflict = xmalloc(sizeof(struct conflict_part));
 	flags                = CONFLICT_CONFLICTED;
@@ -2644,8 +2644,8 @@ static struct ondisk_conflict_part *conflict_to_ondisk(struct conflict_part *cp)
 	struct ondisk_conflict_part *ondisk;
 	
 	ondisk = xcalloc(1, sizeof(struct ondisk_conflict_part));
-	ondisk->flags      = htonl(cp->flags);
-	ondisk->entry_mode = htonl(cp->entry_mode);
+	ondisk->flags      = htons(cp->flags);
+	ondisk->entry_mode = htons(cp->entry_mode);
 	hashcpy(ondisk->sha1, cp->sha1);
 	return ondisk;
 }
@@ -2712,7 +2712,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 		}
 		if (ce_stage(cache[i]) <= 1) {
 			search->de_nfiles++;
-			*total_file_len += ce_namelen(cache[i]);
+			*total_file_len += ce_namelen(cache[i]) + 1;
 			if (search->ce == NULL) {
 				search->ce = cache[i];
 				search->ce_last = search->ce;
@@ -3002,6 +3002,8 @@ static int write_conflict_v5(struct conflict_queue *conflict, int fd)
 		crc = 0;
 		if (ce_write_v5(&crc, fd, (Bytef*)current->ce->name, current->ce->namelen) < 0)
 			return -1;
+		if (ce_write_v5(&crc, fd, (Bytef*)"\0", 1) < 0)
+			return -1;
 		to_write = htonl(current->ce->nfileconflicts);
 		if (ce_write_v5(&crc, fd, (Bytef*)&to_write, 4) < 0)
 			return -1;
@@ -3100,7 +3102,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 		+ ndir * (ondisk_directory_size + 4)
 		+ non_conflicted * 4
 		+ total_file_len
-		+ (entries - removed) * (sizeof(struct ondisk_cache_entry_v5) + 4);
+		+ non_conflicted * (sizeof(struct ondisk_cache_entry_v5) + 4);
 	if (write_directories_v5(de, newfd, conflict_offset) < 0)
 		return -1;
 
