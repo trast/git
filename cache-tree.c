@@ -628,7 +628,6 @@ static void convert_one_to_ondisk_v5(struct hash_table *table, struct cache_tree
 	while (search && strcmp(path, search->pathname + search->de_pathlen - strlen(path)) != 0)
 		search = search->next_hash;
 	search->de_nentries = it->entry_count;
-	search->de_nsubtrees = it->subtree_nr;
 	if (0 <= it->entry_count)
 		hashcpy(search->sha1, it->sha1);
 	if (strcmp(path, "") != 0)
@@ -658,8 +657,7 @@ static void convert_one_to_ondisk_v5(struct hash_table *table, struct cache_tree
 
 void cache_tree_to_ondisk_v5(struct hash_table *table, struct cache_tree *root)
 {
-	if (root)
-		convert_one_to_ondisk_v5(table, root, "", 0, 0);
+	convert_one_to_ondisk_v5(table, root, "", 0, 0);
 }
 
 static struct cache_tree *cache_tree_find(struct cache_tree *it, const char *path)
