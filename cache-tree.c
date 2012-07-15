@@ -605,7 +605,7 @@ struct cache_tree *cache_tree_convert_v5(struct directory_entry *de)
 {
 	struct directory_queue *queue;
 
-	if (de->de_nentries == 0)
+	if (!de->de_nentries)
 		return NULL;
 	queue = xcalloc(1, sizeof(struct directory_queue));
 	queue[0].de = de;

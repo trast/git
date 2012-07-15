@@ -1963,7 +1963,6 @@ void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
 	read_entries_v5(istate, directory_entries, &entry_offset,
 			mmap, mmap_size, &nr, &foffsetblock, 0);
 	istate->cache_tree = cache_tree_convert_v5(directory_entries);
-	return;
 }
 
 /* remember to discard_cache() before reading a different cache! */
