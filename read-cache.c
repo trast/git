@@ -79,6 +79,9 @@ void rename_index_entry_at(struct index_state *istate, int nr, const char *new_n
  */
 void fill_stat_cache_info(struct cache_entry *ce, struct stat *st)
 {
+	uint32_t stat, stat_crc;
+	unsigned int ctimens = 0;
+
 	ce->ce_ctime.sec = (unsigned int)st->st_ctime;
 	ce->ce_mtime.sec = (unsigned int)st->st_mtime;
 	ce->ce_ctime.nsec = ST_CTIME_NSEC(*st);
@@ -94,6 +97,25 @@ void fill_stat_cache_info(struct cache_entry *ce, struct stat *st)
 
 	if (S_ISREG(st->st_mode))
 		ce_mark_uptodate(ce);
+
+	stat = htonl(ce->ce_ctime.sec);
+	stat_crc = crc32(0, (Bytef*)&stat, 4);
+#ifdef USE_NSEC
+	ctimens = ce->ce_ctime.nsec;
+#endif
+	stat = htonl(ctimens);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_ino);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_size);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_dev);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_uid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	stat = htonl(ce->ce_gid);
+	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
+	ce->ce_stat_crc = stat_crc;
 }
 
 static int ce_compare_data(struct cache_entry *ce, struct stat *st)
@@ -2818,9 +2840,6 @@ static struct directory_entry *find_directories(struct index_state *istate,
 static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry *ce)
 {
 	struct ondisk_cache_entry_v5 *ondisk;
-	uint32_t stat_crc = 0;
-	uint32_t stat;
-	unsigned int ctimens = 0;
 	unsigned int flags;
 
 	flags  = 0;
@@ -2833,25 +2852,7 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	ondisk->mode       = htons(ce->ce_mode);
 	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
 	ondisk->mtime.nsec = htonl(ce->ce_mtime.nsec);
-
-	stat = htonl(ce->ce_ctime.sec);
-	stat_crc = crc32(0, (Bytef*)&stat, 4);
-#ifdef USE_NSEC
-	ctimens = ce->ce_ctime.nsec;
-#endif
-	stat = htonl(ctimens);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	stat = htonl(ce->ce_ino);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	stat = htonl(ce->ce_size);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	stat = htonl(ce->ce_dev);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	stat = htonl(ce->ce_uid);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	stat = htonl(ce->ce_gid);
-	stat_crc = crc32(stat_crc, (Bytef*)&stat, 4);
-	ondisk->stat_crc = htonl(stat_crc);
+	ondisk->stat_crc   = htonl(ce->ce_stat_crc);
 	hashcpy(ondisk->sha1, ce->sha1);
 	return ondisk;
 }
