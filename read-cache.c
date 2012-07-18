@@ -1781,17 +1781,17 @@ static struct conflict_queue *read_conflicts_v5(struct directory_entry *de,
 			ondisk = mmap + croffset;
 			cp = conflict_part_from_ondisk(ondisk);
 			cp->next = NULL;
-			if (conflict_stage(cp) != 1) {
-				if (!cp_current) {
-					ce->entries = cp;
-					cp_current = cp;
-				} else {
-					cp_current->next = cp;
-					cp_current = cp_current->next;
-				}
+			if (!cp_current) {
+				ce->entries = cp;
+				cp_current = cp;
+			} else {
+				cp_current->next = cp;
+				cp_current = cp_current->next;
 			}
 			croffset += sizeof(struct ondisk_conflict_part);
 		}
+		/* TODO: check crc */
+		croffset += 4;
 		conflict_current->ce = ce;
 		conflict_current->next = xmalloc(sizeof(struct conflict_queue));
 		conflict_current = conflict_current->next;
@@ -1838,11 +1838,12 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		/* Add the conflicted entries at the end of the index file
 		 * to the in memory format
 		 */
-		if (conflict_queue->ce &&
+		if (conflict_queue->ce && conflict_queue->ce->entries &&
 		    (conflict_queue->ce->entries->flags & CONFLICT_CONFLICTED) != 0 &&
 		    strcmp(conflict_queue->ce->name, ce->name) == 0) {
 			struct conflict_part *cp, *current_cp;
 			cp = conflict_queue->ce->entries;
+			cp = cp->next;
 			while (cp) {
 				ce = convert_conflict_part(cp,
 						conflict_queue->ce->name,

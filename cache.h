@@ -177,6 +177,7 @@ struct conflict_entry {
 	unsigned int nfileconflicts;
 	struct conflict_part *entries;
 	unsigned int namelen;
+	unsigned int pathlen;
 	char name[FLEX_ARRAY];
 };
 
