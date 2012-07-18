@@ -1518,9 +1518,9 @@ static struct cache_entry *cache_entry_from_ondisk_v5(struct ondisk_cache_entry_
 	ce->ce_flags     |= flags & CE_STAGEMASK;
 	ce->ce_flags     |= flags & CE_VALID;
 	if (ce->ce_flags | CE_INTENTTOADD_V5)
-		ce->ce_flags |= flags & CE_INTENTTOADD_V5 << 15;
+		ce->ce_flags |= (flags & CE_INTENTTOADD_V5) << 15;
 	if (ce->ce_flags | CE_SKIPWORKTREE_V5)
-		ce->ce_flags |= flags & CE_SKIPWORKTREE_V5 << 18;
+		ce->ce_flags |= (flags & CE_SKIPWORKTREE_V5) << 19;
 	ce->ce_stat_crc   = ntoh_l(ondisk->stat_crc);
 	hashcpy(ce->sha1, ondisk->sha1);
 	memcpy(ce->name, de->pathname, de->de_pathlen);
