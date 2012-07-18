@@ -2623,10 +2623,13 @@ static struct directory_entry *init_directory_entry(char *pathname, int len)
 	de->de_nentries   = 0;
 	memset(de->sha1, 0, 20);
 	de->de_pathlen    = len;
+	de->next          = NULL;
+	de->next_hash     = NULL;
 	de->ce            = NULL;
 	de->ce_last       = NULL;
 	de->conflict      = NULL;
 	de->conflict_last = NULL;
+	de->conflict_size = 0;
 	return de;
 }
 
@@ -2683,7 +2686,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	char *dir;
 	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
 	struct cache_entry **cache = istate->cache;
-	struct conflict_queue *conflict_queue, *conflict_queue_current;
+	struct conflict_queue *conflict_queue;
 	struct hash_table table;
 	uint32_t crc;
 
@@ -2696,11 +2699,12 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	*total_dir_len = 1;
 	crc = crc32(0, (Bytef*)de->pathname, de->de_pathlen);
 	insert_hash(crc, de, &table);
-	conflict_queue_current = NULL;
+	conflict_queue = NULL;
 	for (i = 0; i < nfile; i++) {
 		if (cache[i]->ce_flags & CE_REMOVE)
 			continue;
-		if (ce_stage(cache[i]) <= 1)
+		if (!ce_stage(cache[i]) || conflict_queue == NULL
+			|| strcmp(conflict_queue->ce->name, cache[i]->name) != 0)
 			(*non_conflicted)++;
 		dir = super_directory(cache[i]->name);
 		if (!dir)
@@ -2717,9 +2721,6 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			struct directory_entry *insert;
 
 			new = init_directory_entry(dir, dir_len);
-			new->next_hash = NULL;
-			new->next = NULL;
-			new->de_nfiles = 0;
 			insert = (struct directory_entry *)insert_hash(crc, new, &table);
 			if (insert) {
 				while (insert->next_hash)
@@ -2732,9 +2733,12 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			*total_dir_len += new->de_pathlen + 2;
 			search = current;
 		}
-		if (ce_stage(cache[i]) <= 1) {
+		if (!ce_stage(cache[i]) || conflict_queue == NULL
+			|| strcmp(conflict_queue->ce->name, cache[i]->name) != 0) {
 			search->de_nfiles++;
 			*total_file_len += ce_namelen(cache[i]) + 1;
+			if (search->de_pathlen)
+				*total_file_len -= search->de_pathlen + 1;
 			if (search->ce == NULL) {
 				search->ce = cache[i];
 				search->ce_last = search->ce;
@@ -2745,12 +2749,18 @@ static struct directory_entry *find_directories(struct index_state *istate,
 				search->ce_last->next = NULL;
 			}
 		}
-		if (ce_stage(cache[i]) == 1) {
+		if (ce_stage(cache[i]) > 0 && (conflict_queue == NULL
+			|| strcmp(conflict_queue->ce->name, cache[i]->name) != 0)) {
 			struct conflict_entry *conflict_entry;
 			struct conflict_part *conflict_part;
+			int pathlen;
 
 			search->de_ncr++;
-			search->conflict_size += ce_namelen(cache[i]) + 8;
+			pathlen = search->de_pathlen;
+			if (search->de_pathlen != 0)
+				pathlen++;
+			search->conflict_size += ce_namelen(cache[i]) + 1 + 8;
+			search->conflict_size -= pathlen;
 			search->conflict_size += sizeof(struct ondisk_conflict_part);
 
 			conflict_queue = xmalloc(sizeof(struct conflict_queue));
@@ -2758,13 +2768,11 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			conflict_entry->nfileconflicts = 1;
 			conflict_entry->namelen = ce_namelen(cache[i]);
 			memcpy(conflict_entry->name, cache[i]->name, ce_namelen(cache[i]));
+			conflict_entry->pathlen = pathlen;
 			conflict_part = conflict_part_from_inmemory(cache[i]);
 			conflict_entry->entries = conflict_part;
 			conflict_queue->ce = conflict_entry;
 			conflict_queue->next = NULL;
-			if (conflict_queue_current)
-				conflict_queue_current->next = conflict_queue;
-			conflict_queue_current = conflict_queue;
 
 			if (search->conflict == NULL) {
 				search->conflict = conflict_queue;
@@ -2775,13 +2783,12 @@ static struct directory_entry *find_directories(struct index_state *istate,
 				search->conflict_last = search->conflict_last->next;
 				search->conflict_last->next = NULL;
 			}
-		}
-		if (ce_stage(cache[i]) > 1) {
+		} else if (ce_stage(cache[i]) > 0) {
 			struct conflict_part *conflict_search, *conflict_part;
 
 			conflict_part = conflict_part_from_inmemory(cache[i]);
-			conflict_search = conflict_queue_current->ce->entries;
-			conflict_queue_current->ce->nfileconflicts++;
+			conflict_search = search->conflict_last->ce->entries;
+			search->conflict_last->ce->nfileconflicts++;
 			while (conflict_search->next)
 				conflict_search = conflict_search->next;
 			conflict_search->next = conflict_part;
@@ -2803,8 +2810,6 @@ static struct directory_entry *find_directories(struct index_state *istate,
 				struct directory_entry *insert;
 
 				new = init_directory_entry(dir, dir_len);
-				new->next_hash = NULL;
-				new->next = NULL;
 				new->de_nsubtrees = 1;
 				insert = (struct directory_entry *)insert_hash(crc, new, &table);
 				if (insert) {
@@ -2909,13 +2914,13 @@ static int write_directories_v5(struct directory_entry *de, int fd, int conflict
 		}
 		current->de_foffset = foffset;
 		current->de_cr = conflict_offset;
-		conflict_offset += current->conflict_size;
 		ondisk = ondisk_from_directory_entry(current);
 		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
 			return -1;
 		crc = htonl(crc);
 		if (ce_write_v5(NULL, fd, &crc, 4) < 0)
 			return -1;
+		conflict_offset += current->conflict_size;
 		foffset += current->de_nfiles * 4;
 		current = current->next;
 	}
@@ -3001,7 +3006,9 @@ static int write_conflict_v5(struct conflict_queue *conflict, int fd)
 		unsigned int to_write;
 
 		crc = 0;
-		if (ce_write_v5(&crc, fd, (Bytef*)current->ce->name, current->ce->namelen) < 0)
+		if (ce_write_v5(&crc, fd,
+		     (Bytef*)(current->ce->name + current->ce->pathlen),
+		     current->ce->namelen - current->ce->pathlen) < 0)
 			return -1;
 		if (ce_write_v5(&crc, fd, (Bytef*)"\0", 1) < 0)
 			return -1;
@@ -3097,7 +3104,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	if (ce_write_v5(NULL, newfd, &crc, 4) < 0)
 		return -1;
 
-	conflict_offset =sizeof(hdr) + sizeof(hdr_v5) + 4
+	conflict_offset = sizeof(hdr) + sizeof(hdr_v5) + 4
 		+ ndir * 4
 		+ total_dir_len
 		+ ndir * (ondisk_directory_size + 4)
@@ -3106,7 +3113,6 @@ static int write_index_v5(struct index_state *istate, int newfd)
 		+ non_conflicted * (sizeof(struct ondisk_cache_entry_v5) + 4);
 	if (write_directories_v5(de, newfd, conflict_offset) < 0)
 		return -1;
-
 	if (write_entries_v5(istate, de, entries, newfd) < 0)
 		return -1;
 	if (write_conflicts_v5(istate, de, newfd) < 0)
