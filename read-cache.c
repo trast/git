@@ -2851,8 +2851,8 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	flags  = 0;
 	flags |= ce->ce_flags & CE_STAGEMASK;
 	flags |= ce->ce_flags & CE_VALID;
-	flags |= ce->ce_flags & CE_INTENT_TO_ADD >> 15;
-	flags |= ce->ce_flags & CE_SKIP_WORKTREE >> 18;
+	flags |= (ce->ce_flags & CE_INTENT_TO_ADD) >> 15;
+	flags |= (ce->ce_flags & CE_SKIP_WORKTREE) >> 19;
 	ondisk = xcalloc(1, sizeof(struct ondisk_cache_entry_v5));
 	ondisk->flags      = htons(flags);
 	ondisk->mode       = htons(ce->ce_mode);
