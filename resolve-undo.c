@@ -170,3 +170,42 @@ void unmerge_index(struct index_state *istate, const char **pathspec)
 		i = unmerge_index_entry_at(istate, i);
 	}
 }
+
+struct string_list *resolve_undo_convert_v5(struct index_state *istate,
+					struct conflict_queue *cq)
+{
+	int i;
+
+	while (cq->ce) {
+		struct string_list_item *lost;
+		struct resolve_undo_info *ui;
+		struct conflict_entry *ce;
+		struct conflict_part *cp;
+
+		ce = cq->ce;
+		if ((ce->entries->flags & CONFLICT_CONFLICTED) != 0) {
+			cq = cq->next;
+			continue;
+		}
+		if (!istate->resolve_undo) {
+			istate->resolve_undo = xcalloc(1, sizeof(struct string_list));
+			istate->resolve_undo->strdup_strings = 1;
+		}
+
+		lost = string_list_insert(istate->resolve_undo, ce->name);
+		if (!lost->util)
+			lost->util = xcalloc(1, sizeof(*ui));
+		ui = lost->util;
+
+		cp = ce->entries;
+		for (i = 0; i < 3; i++)
+			ui->mode[i] = 0;
+		while (cp) {
+			ui->mode[conflict_stage(cp)] = cp->entry_mode;
+			hashcpy(ui->sha1[i], cp->sha1);
+			cp = cp->next;
+		}
+		cq = cq->next;
+	}
+	return istate->resolve_undo;
+}

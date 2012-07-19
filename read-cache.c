@@ -1347,11 +1347,6 @@ struct entry_queue {
 	struct cache_entry *ce;
 };
 
-struct conflict_queue {
-	struct conflict_queue *next;
-	struct conflict_entry *ce;
-};
-
 struct ondisk_conflict_part {
 	unsigned short flags;
 	unsigned short entry_mode;
@@ -1811,10 +1806,11 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 					int something_in_queue)
 {
 	struct entry_queue *queue, *current;
-	struct conflict_queue *conflict_queue, *conflict_current;
+	struct conflict_queue *cq, *conflict_current;
 	int i;
 
-	conflict_queue = read_conflicts_v5(de, mmap, mmap_size);
+	cq = read_conflicts_v5(de, mmap, mmap_size);
+	istate->resolve_undo = resolve_undo_convert_v5(istate, cq);
 
 	queue = xmalloc(sizeof(struct entry_queue));
 	current = queue;
@@ -1838,16 +1834,16 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		/* Add the conflicted entries at the end of the index file
 		 * to the in memory format
 		 */
-		if (conflict_queue->ce && conflict_queue->ce->entries &&
-		    (conflict_queue->ce->entries->flags & CONFLICT_CONFLICTED) != 0 &&
-		    strcmp(conflict_queue->ce->name, ce->name) == 0) {
+		if (cq->ce && cq->ce->entries &&
+		    (cq->ce->entries->flags & CONFLICT_CONFLICTED) != 0 &&
+		    strcmp(cq->ce->name, ce->name) == 0) {
 			struct conflict_part *cp, *current_cp;
-			cp = conflict_queue->ce->entries;
+			cp = cq->ce->entries;
 			cp = cp->next;
 			while (cp) {
 				ce = convert_conflict_part(cp,
-						conflict_queue->ce->name,
-						conflict_queue->ce->namelen);
+						cq->ce->name,
+						cq->ce->namelen);
 				
 				current->ce = ce;
 				current->next = xmalloc(sizeof(struct entry_queue));
@@ -1859,8 +1855,8 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 				cp = cp->next;
 				free(current_cp);
 			}
-			conflict_current = conflict_queue;
-			conflict_queue = conflict_queue->next;
+			conflict_current = cq;
+			cq = cq->next;
 			free(conflict_current);
 		}
 	}

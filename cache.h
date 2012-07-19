@@ -165,6 +165,10 @@ struct directory_entry {
 	char pathname[FLEX_ARRAY];
 };
 
+struct conflict_queue {
+	struct conflict_queue *next;
+	struct conflict_entry *ce;
+};
 
 struct conflict_part {
 	struct conflict_part *next;
