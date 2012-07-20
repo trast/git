@@ -196,7 +196,7 @@ static int process_path(const char *path)
 		 * so updating it does not make sense.
 		 * On the other hand, removing it from index should work
 		 */
-		if (allow_remove && remove_file_from_cache(path))
+		if (allow_remove && remove_file_from_cache_extended(path, 1))
 			return error("%s: cannot remove from the index", path);
 		return 0;
 	}
