@@ -1836,7 +1836,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		 */
 		if (cq->ce && cq->ce->entries &&
 		    (cq->ce->entries->flags & CONFLICT_CONFLICTED) != 0 &&
-		    strcmp(cq->ce->name, ce->name) == 0) {
+		    !strcmp(cq->ce->name, ce->name)) {
 			struct conflict_part *cp, *current_cp;
 			cp = cq->ce->entries;
 			cp = cp->next;
