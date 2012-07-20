@@ -1796,6 +1796,26 @@ static struct conflict_queue *read_conflicts_v5(struct directory_entry *de,
 	return conflict_queue;
 }
 
+static void entry_queue_push(struct entry_queue **head,
+			     struct entry_queue **tail,
+			     struct cache_entry *ce)
+{
+	struct entry_queue *eq;
+
+	if (!*head) {
+		*head = *tail = xmalloc(sizeof(struct entry_queue));
+		(*tail)->ce = ce;
+		(*tail)->next = NULL;
+		return;
+	}
+
+	eq = xmalloc(sizeof(struct entry_queue));
+	(*tail)->next = eq;
+	eq->ce = ce;
+	eq->next = NULL;
+	*tail = eq;
+}
+
 static struct directory_entry *read_entries_v5(struct index_state *istate,
 					struct directory_entry *de,
 					unsigned long *entry_offset,
@@ -1805,17 +1825,12 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 					unsigned int *foffsetblock,
 					int something_in_queue)
 {
-	struct entry_queue *queue, *current;
+	struct entry_queue *queue = NULL, *current = NULL;
 	struct conflict_queue *cq, *conflict_current;
 	int i;
 
 	cq = read_conflicts_v5(de, mmap, mmap_size);
 	resolve_undo_convert_v5(istate, cq);
-
-	queue = xmalloc(sizeof(struct entry_queue));
-	current = queue;
-	current->ce = NULL;
-	current->next = NULL;
 	for (i = 0; i < de->de_nfiles; i++) {
 		struct cache_entry *ce;
 		ce = read_entry_v5(de,
@@ -1823,13 +1838,8 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 				mmap,
 				mmap_size,
 				foffsetblock);
-
+		entry_queue_push(&queue, &current, ce);
 		*foffsetblock += 4;
-		current->ce = ce;
-		current->next = xmalloc(sizeof(struct entry_queue));
-		current = current->next;
-		current->ce = NULL;
-		current->next = NULL;
 
 		/* Add the conflicted entries at the end of the index file
 		 * to the in memory format
@@ -1844,13 +1854,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 				ce = convert_conflict_part(cp,
 						cq->ce->name,
 						cq->ce->namelen);
-				
-				current->ce = ce;
-				current->next = xmalloc(sizeof(struct entry_queue));
-				current = current->next;
-				current->ce = NULL;
-				current->next = NULL;
-
+				entry_queue_push(&queue, &current, ce);
 				current_cp = cp;
 				cp = cp->next;
 				free(current_cp);
@@ -1861,7 +1865,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		}
 	}
 
-	while (queue->ce) {
+	while (queue) {
 		if (de->next != NULL
 		    && strcmp(queue->ce->name, de->next->pathname) > 0) {
 			de = de->next;
