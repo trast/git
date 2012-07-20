@@ -234,7 +234,6 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 		ce->namelen = strlen(item->string);
 		memcpy(ce->name, item->string, ce->namelen);
 		ce->name[ce->namelen] = '\0';
-		fprintf(stderr, "name: %s\n", ce->name);
 		ce->pathlen = de->de_pathlen;
 		de->de_ncr++;
 		cq->next = NULL;
