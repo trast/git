@@ -220,12 +220,14 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 		struct conflict_queue *cq;
 		struct conflict_entry *ce;
 		struct resolve_undo_info *ui = item->util;
+		char *super;
 		int i;
 
 		if (!ui)
 			continue;
 
-		while (strcmp(de->pathname, super_directory(item->string)) != 0)
+		super = super_directory(item->string);
+		while (super && strcmp(de->pathname, super) != 0)
 			de = de->next;
 		cq = xmalloc(sizeof(struct conflict_queue));
 		ce = xmalloc(conflict_entry_size(strlen(item->string)));
