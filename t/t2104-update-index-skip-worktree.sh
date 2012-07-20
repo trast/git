@@ -28,8 +28,9 @@ test_expect_success 'setup' '
 	git ls-files -t | test_cmp expect.full -
 '
 
-test_expect_success 'index is at version 2' '
-	test "$(test-index-version < .git/index)" = 2
+test_expect_success 'index is at version 2 or version 5' '
+	test "$(test-index-version < .git/index)" = 2 ||
+	test "$(test-index-version < .git/index)" = 5
 '
 
 test_expect_success 'update-index --skip-worktree' '
@@ -37,8 +38,9 @@ test_expect_success 'update-index --skip-worktree' '
 	git ls-files -t | test_cmp expect.skip -
 '
 
-test_expect_success 'index is at version 3 after having some skip-worktree entries' '
-	test "$(test-index-version < .git/index)" = 3
+test_expect_success 'index is at version 3 or version 5 after having some skip-worktree entries' '
+	test "$(test-index-version < .git/index)" = 3 ||
+	test "$(test-index-version < .git/index)" = 5
 '
 
 test_expect_success 'ls-files -t' '
@@ -50,8 +52,9 @@ test_expect_success 'update-index --no-skip-worktree' '
 	git ls-files -t | test_cmp expect.full -
 '
 
-test_expect_success 'index version is back to 2 when there is no skip-worktree entry' '
-	test "$(test-index-version < .git/index)" = 2
+test_expect_success 'index version is back to 2 or 5 when there is no skip-worktree entry' '
+	test "$(test-index-version < .git/index)" = 2 ||
+	test "$(test-index-version < .git/index)" = 5
 '
 
 test_done
