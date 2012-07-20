@@ -540,7 +540,6 @@ int remove_index_entry_at(struct index_state *istate, int pos)
 {
 	struct cache_entry *ce = istate->cache[pos];
 
-	record_resolve_undo(istate, ce);
 	remove_name_hash(ce);
 	istate->cache_changed = 1;
 	istate->cache_nr--;
@@ -572,15 +571,23 @@ void remove_marked_cache_entries(struct index_state *istate)
 	istate->cache_nr = j;
 }
 
-int remove_file_from_index(struct index_state *istate, const char *path)
+int remove_file_from_index_extended(struct index_state *istate, const char *path, int save_reuc)
 {
 	int pos = index_name_pos(istate, path, strlen(path));
 	if (pos < 0)
 		pos = -pos-1;
 	cache_tree_invalidate_path(istate->cache_tree, path);
-	while (pos < istate->cache_nr && !strcmp(istate->cache[pos]->name, path))
+	while (pos < istate->cache_nr && !strcmp(istate->cache[pos]->name, path)) {
+		if (save_reuc)
+			record_resolve_undo(istate, istate->cache[pos]);
 		remove_index_entry_at(istate, pos);
+	}
 	return 0;
+}
+
+int remove_file_from_index(struct index_state *istate, const char *path)
+{
+	return remove_file_from_index_extended(istate, path, 0);
 }
 
 static int compare_name(struct cache_entry *ce, const char *path, int namelen)
@@ -1020,6 +1027,7 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	if (pos < istate->cache_nr && ce_stage(ce) == 0) {
 		while (ce_same_name(istate->cache[pos], ce)) {
 			ok_to_add = 1;
+			record_resolve_undo(istate, istate->cache[pos]);
 			if (!remove_index_entry_at(istate, pos))
 				break;
 		}

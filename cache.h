@@ -378,6 +378,7 @@ static inline void remove_name_hash(struct cache_entry *ce)
 #define rename_cache_entry_at(pos, new_name) rename_index_entry_at(&the_index, (pos), (new_name))
 #define remove_cache_entry_at(pos) remove_index_entry_at(&the_index, (pos))
 #define remove_file_from_cache(path) remove_file_from_index(&the_index, (path))
+#define remove_file_from_cache_extended(path, flags) remove_file_from_index_extended(&the_index, (path), (flags))
 #define add_to_cache(path, st, flags) add_to_index(&the_index, (path), (st), (flags))
 #define add_file_to_cache(path, flags) add_file_to_index(&the_index, (path), (flags))
 #define refresh_cache(flags) refresh_index(&the_index, (flags), NULL, NULL, NULL)
@@ -523,6 +524,7 @@ extern void rename_index_entry_at(struct index_state *, int pos, const char *new
 extern int remove_index_entry_at(struct index_state *, int pos);
 extern void remove_marked_cache_entries(struct index_state *istate);
 extern int remove_file_from_index(struct index_state *, const char *path);
+extern int remove_file_from_index_extended(struct index_state *, const char *path, int save_reuc);
 #define ADD_CACHE_VERBOSE 1
 #define ADD_CACHE_PRETEND 2
 #define ADD_CACHE_IGNORE_ERRORS	4
