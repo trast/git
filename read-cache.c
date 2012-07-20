@@ -2608,7 +2608,7 @@ char *super_directory(char *filename)
 	return dir_name;
 }
 
-static struct directory_entry *init_directory_entry(char *pathname, int len)
+struct directory_entry *init_directory_entry(char *pathname, int len)
 {
 	struct directory_entry *de = xmalloc(directory_entry_size(len));
 
@@ -3007,12 +3007,10 @@ static int write_conflict_v5(struct conflict_queue *conflict, int ncr, int fd)
 		unsigned int to_write;
 
 		crc = 0;
-		fprintf(stderr, "asdf\n");
 		if (ce_write_v5(&crc, fd,
 		     (Bytef*)(current->ce->name + current->ce->pathlen),
 		     current->ce->namelen - current->ce->pathlen) < 0)
 			return -1;
-		fprintf(stderr, "asdf\n");
 		if (ce_write_v5(&crc, fd, (Bytef*)"\0", 1) < 0)
 			return -1;
 		to_write = htonl(current->ce->nfileconflicts);
@@ -3046,7 +3044,6 @@ static int write_conflicts_v5(struct index_state *istate,
 		if (current->de_ncr != 0)
 			if (write_conflict_v5(current->conflict, de->de_ncr + 1, fd) < 0)
 				return -1;
-		fprintf(stderr, "%s\n", current->pathname);
 		current = current->next;
 	}
 	return 0;
