@@ -1810,7 +1810,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 	int i;
 
 	cq = read_conflicts_v5(de, mmap, mmap_size);
-	istate->resolve_undo = resolve_undo_convert_v5(istate, cq);
+	resolve_undo_convert_v5(istate, cq);
 
 	queue = xmalloc(sizeof(struct entry_queue));
 	current = queue;
@@ -2582,7 +2582,7 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	return 0;
 }
 
-static char *super_directory(char *filename)
+char *super_directory(char *filename)
 {
 	char *prev, *last, *dir_name;
 	int last_slash_pos;
@@ -2991,40 +2991,55 @@ static int write_entries_v5(struct index_state *istate,
 	return 0;
 }
 
-static int write_conflict_v5(struct conflict_queue *conflict, int fd)
+static int write_conflict_v5(struct conflict_queue *conflict, int ncr, int fd)
 {
 	struct conflict_queue *current;
 	struct conflict_part *current_part;
 	uint32_t crc;
+	int i;
 
 	current = conflict;
-	while (current) {
+	for (i = 0; i < ncr; i++) {
 		unsigned int to_write;
 
 		crc = 0;
+		fprintf(stderr, "1\n");
+		fprintf(stderr, "%s\n", current->ce->name);
 		if (ce_write_v5(&crc, fd,
 		     (Bytef*)(current->ce->name + current->ce->pathlen),
 		     current->ce->namelen - current->ce->pathlen) < 0)
 			return -1;
+		fprintf(stderr, "2\n");
 		if (ce_write_v5(&crc, fd, (Bytef*)"\0", 1) < 0)
 			return -1;
+		fprintf(stderr, "3\n");
 		to_write = htonl(current->ce->nfileconflicts);
 		if (ce_write_v5(&crc, fd, (Bytef*)&to_write, 4) < 0)
 			return -1;
+		fprintf(stderr, "4\n");
 		current_part = current->ce->entries;
+		fprintf(stderr, "5\n");
 		while (current_part) {
 			struct ondisk_conflict_part *ondisk;
 
+			fprintf(stderr, "6\n");
 			ondisk = conflict_to_ondisk(current_part);
+			fprintf(stderr, "7\n");
 			if (ce_write_v5(&crc, fd, (Bytef*)ondisk, sizeof(struct ondisk_conflict_part)) < 0)
 				return 0;
+			fprintf(stderr, "8\n");
 			current_part = current_part->next;
+			fprintf(stderr, "9\n");
 		}
+		fprintf(stderr, "10\n");
 		to_write = htonl(crc);
+		fprintf(stderr, "11\n");
 		if (ce_write_v5(NULL, fd, (Bytef*)&to_write, 4) < 0)
 			return -1;
+		fprintf(stderr, "12\n");
 		current = current->next;
 	}
+	fprintf(stderr, "13\n");
 	return 0;
 }
 
@@ -3036,9 +3051,12 @@ static int write_conflicts_v5(struct index_state *istate,
 
 	current = de;
 	while (current) {
+		fprintf(stderr, "%s\n", current->pathname);
+		fprintf(stderr, "%i\n", current->de_ncr);
 		if (current->de_ncr != 0)
-			if (write_conflict_v5(current->conflict, fd) < 0)
+			if (write_conflict_v5(current->conflict, de->de_ncr + 1, fd) < 0)
 				return -1;
+		fprintf(stderr, "%s\n", current->pathname);
 		current = current->next;
 	}
 	return 0;
@@ -3071,6 +3089,7 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	total_file_len = 0;
 	de = find_directories(istate, entries, &ndir, &non_conflicted,
 			&total_dir_len, &total_file_len);
+	/* resolve_undo_to_ondisk_v5(istate->resolve_undo, de); */
 	hdr_v5.hdr_ndir = htonl(ndir);
 
 	/*

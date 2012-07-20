@@ -13,6 +13,7 @@ extern void resolve_undo_clear_index(struct index_state *);
 extern int unmerge_index_entry_at(struct index_state *, int);
 extern void unmerge_index(struct index_state *, const char **);
 
-extern struct string_list *resolve_undo_convert_v5(struct index_state *, struct conflict_queue *);
+extern void resolve_undo_convert_v5(struct index_state *, struct conflict_queue *);
+extern void resolve_undo_to_ondisk_v5(struct string_list *, struct directory_entry *);
 
 #endif

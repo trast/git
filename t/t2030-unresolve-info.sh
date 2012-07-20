@@ -65,6 +65,14 @@ test_expect_success 'add records switch clears' '
 	echo switching clears &&
 	check_resolve_undo cleared
 '
+# prime_resolve_undo
+# test_tick
+# git commit -m merged
+# echo committing keeps
+# check_resolve_undo kept fi/le initial:fi/le seconf:fi/le third:fi/le
+# echo switching clears
+# check_resolve_undo cleared
+# exit 0
 
 test_expect_success 'rm records reset clears' '
 	prime_resolve_undo &&

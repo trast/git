@@ -171,7 +171,7 @@ void unmerge_index(struct index_state *istate, const char **pathspec)
 	}
 }
 
-struct string_list *resolve_undo_convert_v5(struct index_state *istate,
+void resolve_undo_convert_v5(struct index_state *istate,
 					struct conflict_queue *cq)
 {
 	int i;
@@ -207,5 +207,65 @@ struct string_list *resolve_undo_convert_v5(struct index_state *istate,
 		}
 		cq = cq->next;
 	}
-	return istate->resolve_undo;
+}
+
+void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
+				struct directory_entry *de)
+{
+	struct string_list_item *item;
+
+	if (!resolve_undo)
+		return;
+	for_each_string_list_item(item, resolve_undo) {
+		struct conflict_queue *cq;
+		struct conflict_entry *ce;
+		struct resolve_undo_info *ui = item->util;
+		int i;
+
+		if (!ui)
+			continue;
+
+		while (strcmp(de->pathname, super_directory(item->string)) != 0)
+			de = de->next;
+		cq = xmalloc(sizeof(struct conflict_queue));
+		ce = xmalloc(conflict_entry_size(strlen(item->string)));
+		ce->entries = NULL;
+		ce->nfileconflicts = 0;
+		ce->namelen = strlen(item->string);
+		memcpy(ce->name, item->string, ce->namelen);
+		ce->name[ce->namelen] = '\0';
+		fprintf(stderr, "name: %s\n", ce->name);
+		ce->pathlen = de->de_pathlen;
+		de->de_ncr++;
+		cq->next = NULL;
+		for (i = 0; i < 3; i++) {
+			if (ui->mode[i]) {
+				struct conflict_part *cp, *cs;
+
+				cp = xmalloc(sizeof(struct conflict_part));
+				cp->flags = (i + 1) << CONFLICT_STAGESHIFT;
+				cp->entry_mode = ui->mode[i];
+				cp->next = NULL;
+				hashcpy(cp->sha1, ui->sha1[i]);
+				ce->nfileconflicts++;
+				if (!ce->entries) {
+					ce->entries = cp;
+				} else {
+					cs = ce->entries;
+					while (cs->next)
+						cs = cs->next;
+					cs->next = cp;
+				}
+			}
+		}
+		if (de->conflict == NULL) {
+			de->conflict = cq;
+			de->conflict_last = de->conflict;
+			de->conflict_last->next = NULL;
+		} else {
+			de->conflict_last->next = cq;
+			de->conflict_last = de->conflict_last->next;
+			de->conflict_last->next = NULL;
+		}
+	}
 }

@@ -191,7 +191,7 @@ struct conflict_entry {
 #define CE_VALID     (0x8000)
 #define CE_STAGESHIFT 12
 #define CE_INTENTTOADD_V5  (0x8000)
-#define CE_SKIPWORKTREE_V5 (0x0f00)
+#define CE_SKIPWORKTREE_V5 (0x0800)
 
 #define CONFLICT_CONFLICTED (0x8000)
 #define CONFLICT_STAGESHIFT 13
@@ -1235,6 +1235,9 @@ static inline ssize_t write_str_in_full(int fd, const char *str)
 {
 	return write_in_full(fd, str, strlen(str));
 }
+
+/* directory helper function */
+extern char *super_directory(char *filename);
 
 /* pager.c */
 extern void setup_pager(void);
