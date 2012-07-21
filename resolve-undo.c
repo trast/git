@@ -29,18 +29,19 @@ void resolve_undo_move_into_index(struct index_state *istate)
 	istate->resolve_undo_state = RESOLVE_UNDO_IN_INDEX;
 }
 
-void convert_to_resolve_undo(struct index_state *istate, struct cache_entry *ce)
+int convert_to_resolve_undo(struct index_state *istate, struct cache_entry *ce)
 {
 	int stage = ce_stage(ce);
 
 	if (!stage)
-		return;
+		return 0;
 
 	assert(istate->resolve_undo_state != RESOLVE_UNDO_SEPARATE);
 	istate->resolve_undo_state = RESOLVE_UNDO_IN_INDEX;
 	istate->cache_changed = 1;
 
 	ce->ce_flags |= CE_REUC;
+	return 1;
 }
 
 static void resolve_undo_write_in_index(struct strbuf *sb, struct index_state *istate)

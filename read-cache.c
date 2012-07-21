@@ -588,8 +588,11 @@ int remove_file_from_index_extended(struct index_state *istate, const char *path
 		pos = -pos-1;
 	cache_tree_invalidate_path(istate->cache_tree, path);
 	while (pos < istate->cache_nr && !strcmp(istate->cache[pos]->name, path)) {
+		int keep = 0;
 		if (save_reuc)
-			convert_to_resolve_undo(istate, istate->cache[pos++]);
+			keep = convert_to_resolve_undo(istate, istate->cache[pos]);
+		if (keep)
+			pos++;
 		else
 			remove_index_entry_at(istate, pos);
 	}
@@ -1036,10 +1039,10 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	 * will always replace all non-merged entries..
 	 */
 	if (pos < istate->cache_nr && ce_stage(ce) == 0) {
-		while (pos < istate->cache_nr && ce_same_name(istate->cache[pos], ce)) {
+		int i;
+		for (i = pos; i < istate->cache_nr && ce_same_name(istate->cache[i], ce); i++) {
 			ok_to_add = 1;
-			convert_to_resolve_undo(istate, istate->cache[pos]);
-			pos++;
+			convert_to_resolve_undo(istate, istate->cache[i]);
 		}
 	}
 
@@ -3174,7 +3177,7 @@ int read_index_unmerged(struct index_state *istate)
 		struct cache_entry *new_ce;
 		int size, len;
 
-		if (!ce_stage(ce))
+		if (!ce_stage(ce) || (ce->ce_flags & CE_REUC))
 			continue;
 		unmerged = 1;
 		len = strlen(ce->name);
