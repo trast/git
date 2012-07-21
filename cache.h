@@ -150,8 +150,8 @@ struct directory_entry {
 	struct directory_entry *next_hash;
 	struct cache_entry *ce;
 	struct cache_entry *ce_last;
-	struct conflict_queue *conflict;
-	struct conflict_queue *conflict_last;
+	struct conflict_entry *conflict;
+	struct conflict_entry *conflict_last;
 	unsigned int conflict_size;
 	unsigned int de_foffset;
 	unsigned int de_cr;
@@ -165,11 +165,6 @@ struct directory_entry {
 	char pathname[FLEX_ARRAY];
 };
 
-struct conflict_queue {
-	struct conflict_queue *next;
-	struct conflict_entry *ce;
-};
-
 struct conflict_part {
 	struct conflict_part *next;
 	unsigned short flags;
@@ -178,11 +173,18 @@ struct conflict_part {
 };
 
 struct conflict_entry {
+	struct conflict_entry *next;
 	unsigned int nfileconflicts;
 	struct conflict_part *entries;
 	unsigned int namelen;
 	unsigned int pathlen;
 	char name[FLEX_ARRAY];
+};
+
+struct ondisk_conflict_part {
+	unsigned short flags;
+	unsigned short entry_mode;
+	unsigned char sha1[20];
 };
 
 #define CE_NAMEMASK  (0x0fff)

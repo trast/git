@@ -172,19 +172,17 @@ void unmerge_index(struct index_state *istate, const char **pathspec)
 }
 
 void resolve_undo_convert_v5(struct index_state *istate,
-					struct conflict_queue *cq)
+					struct conflict_entry *ce)
 {
 	int i;
 
-	while (cq->ce) {
+	while (ce) {
 		struct string_list_item *lost;
 		struct resolve_undo_info *ui;
-		struct conflict_entry *ce;
 		struct conflict_part *cp;
 
-		ce = cq->ce;
-		if ((ce->entries->flags & CONFLICT_CONFLICTED) != 0) {
-			cq = cq->next;
+		if (ce->entries && (ce->entries->flags & CONFLICT_CONFLICTED) != 0) {
+			ce = ce->next;
 			continue;
 		}
 		if (!istate->resolve_undo) {
@@ -201,11 +199,11 @@ void resolve_undo_convert_v5(struct index_state *istate,
 		for (i = 0; i < 3; i++)
 			ui->mode[i] = 0;
 		while (cp) {
-			ui->mode[conflict_stage(cp)] = cp->entry_mode;
-			hashcpy(ui->sha1[i], cp->sha1);
+			ui->mode[conflict_stage(cp) - 1] = cp->entry_mode;
+			hashcpy(ui->sha1[conflict_stage(cp) - 1], cp->sha1);
 			cp = cp->next;
 		}
-		cq = cq->next;
+		ce = ce->next;
 	}
 }
 
@@ -213,32 +211,38 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 				struct directory_entry *de)
 {
 	struct string_list_item *item;
+	struct directory_entry *current;
 
 	if (!resolve_undo)
 		return;
 	for_each_string_list_item(item, resolve_undo) {
-		struct conflict_queue *cq;
 		struct conflict_entry *ce;
 		struct resolve_undo_info *ui = item->util;
 		char *super;
 		int i;
 
+		current = de;
 		if (!ui)
 			continue;
 
 		super = super_directory(item->string);
-		while (super && strcmp(de->pathname, super) != 0)
-			de = de->next;
-		cq = xmalloc(sizeof(struct conflict_queue));
+		while (super && current && strcmp(current->pathname, super) != 0)
+			current = current->next;
+		if (!current)
+			continue;
 		ce = xmalloc(conflict_entry_size(strlen(item->string)));
 		ce->entries = NULL;
 		ce->nfileconflicts = 0;
 		ce->namelen = strlen(item->string);
 		memcpy(ce->name, item->string, ce->namelen);
 		ce->name[ce->namelen] = '\0';
-		ce->pathlen = de->de_pathlen;
-		de->de_ncr++;
-		cq->next = NULL;
+		ce->pathlen = current->de_pathlen;
+		fprintf(stderr, "path: %s name: %s len: %i\n", current->pathname, ce->name, ce->pathlen);
+		if (ce->pathlen != 0)
+			ce->pathlen++;
+		current->de_ncr++;
+		current->conflict_size += ce->namelen + 1;
+		ce->next = NULL;
 		for (i = 0; i < 3; i++) {
 			if (ui->mode[i]) {
 				struct conflict_part *cp, *cs;
@@ -248,6 +252,7 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 				cp->entry_mode = ui->mode[i];
 				cp->next = NULL;
 				hashcpy(cp->sha1, ui->sha1[i]);
+				current->conflict_size += sizeof(struct ondisk_conflict_part);
 				ce->nfileconflicts++;
 				if (!ce->entries) {
 					ce->entries = cp;
@@ -259,14 +264,14 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 				}
 			}
 		}
-		if (de->conflict == NULL) {
-			de->conflict = cq;
-			de->conflict_last = de->conflict;
-			de->conflict_last->next = NULL;
+		if (current->conflict == NULL) {
+			current->conflict = ce;
+			current->conflict_last = current->conflict;
+			current->conflict_last->next = NULL;
 		} else {
-			de->conflict_last->next = cq;
-			de->conflict_last = de->conflict_last->next;
-			de->conflict_last->next = NULL;
+			current->conflict_last->next = ce;
+			current->conflict_last = current->conflict_last->next;
+			current->conflict_last->next = NULL;
 		}
 	}
 }
