@@ -3,32 +3,81 @@
 #include "resolve-undo.h"
 #include "string-list.h"
 
-/* The only error case is to run out of memory in string-list */
-void record_resolve_undo(struct index_state *istate, struct cache_entry *ce)
+void resolve_undo_move_into_index(struct index_state *istate)
 {
-	struct string_list_item *lost;
-	struct resolve_undo_info *ui;
-	struct string_list *resolve_undo;
+	struct string_list_item *item;
+
+	if (istate->resolve_undo_state != RESOLVE_UNDO_SEPARATE)
+		return;
+
+	for_each_string_list_item(item, istate->resolve_undo) {
+		struct resolve_undo_info *ru = item->util;
+		int i;
+
+		for (i = 0; i < 3; i++) {
+			struct cache_entry *nce;
+			if (!ru->mode[i])
+				continue;
+			nce = make_cache_entry(ru->mode[i], ru->sha1[i],
+					       item->string, i + 1, 0);
+			nce->ce_flags |= CE_REUC;
+			if (add_index_entry(istate, nce, ADD_CACHE_OK_TO_ADD))
+				die("cannot insert REUC '%s' into index", item->string);
+		}
+	}
+
+	istate->resolve_undo_state = RESOLVE_UNDO_IN_INDEX;
+}
+
+void convert_to_resolve_undo(struct index_state *istate, struct cache_entry *ce)
+{
 	int stage = ce_stage(ce);
 
 	if (!stage)
 		return;
 
-	if (!istate->resolve_undo) {
-		resolve_undo = xcalloc(1, sizeof(*resolve_undo));
-		resolve_undo->strdup_strings = 1;
-		istate->resolve_undo = resolve_undo;
-	}
-	resolve_undo = istate->resolve_undo;
-	lost = string_list_insert(resolve_undo, ce->name);
-	if (!lost->util)
-		lost->util = xcalloc(1, sizeof(*ui));
-	ui = lost->util;
-	hashcpy(ui->sha1[stage - 1], ce->sha1);
-	ui->mode[stage - 1] = ce->ce_mode;
+	assert(istate->resolve_undo_state != RESOLVE_UNDO_SEPARATE);
+	istate->resolve_undo_state = RESOLVE_UNDO_IN_INDEX;
+	istate->cache_changed = 1;
+
+	ce->ce_flags |= CE_REUC;
 }
 
-void resolve_undo_write(struct strbuf *sb, struct string_list *resolve_undo)
+static void resolve_undo_write_in_index(struct strbuf *sb, struct index_state *istate)
+{
+	int pos;
+	for (pos = 0; pos < istate->cache_nr; pos++) {
+		struct cache_entry *ce = istate->cache[pos];
+		int i;
+		unsigned int mode[3] = {0};
+		unsigned char sha1[3][20];
+
+		if (!ce_stage(ce) || !(ce->ce_flags & CE_REUC))
+			continue;
+
+		do {
+			struct cache_entry *rce = istate->cache[pos];
+			if (rce->ce_flags & CE_REUC) {
+				mode[ce_stage(rce)-1] = rce->ce_mode;
+				hashcpy(sha1[ce_stage(rce)-1], rce->sha1);
+			}
+			pos++;
+		} while (pos < istate->cache_nr &&
+		       !strcmp(ce->name, istate->cache[pos]->name));
+
+		strbuf_addstr(sb, ce->name);
+		strbuf_addch(sb, 0);
+		for (i = 0; i < 3; i++)
+			strbuf_addf(sb, "%o%c", mode[i], 0);
+		for (i = 0; i < 3; i++) {
+			if (!mode[i])
+				continue;
+			strbuf_add(sb, sha1[i], 20);
+		}
+	}
+}
+
+static void resolve_undo_write_separate(struct strbuf *sb, struct string_list *resolve_undo)
 {
 	struct string_list_item *item;
 	for_each_string_list_item(item, resolve_undo) {
@@ -46,6 +95,22 @@ void resolve_undo_write(struct strbuf *sb, struct string_list *resolve_undo)
 				continue;
 			strbuf_add(sb, ui->sha1[i], 20);
 		}
+	}
+}
+
+void resolve_undo_write(struct strbuf *sb, struct index_state *istate)
+{
+	switch (istate->resolve_undo_state) {
+	case RESOLVE_UNDO_NONE:
+		return;
+	case RESOLVE_UNDO_SEPARATE:
+		resolve_undo_write_separate(sb, istate->resolve_undo);
+		break;
+	case RESOLVE_UNDO_IN_INDEX:
+		resolve_undo_write_in_index(sb, istate);
+		break;
+	default:
+		die("BUG: invalid resolve_undo_state");
 	}
 }
 
@@ -102,7 +167,19 @@ error:
 	return NULL;
 }
 
-void resolve_undo_clear_index(struct index_state *istate)
+static void resolve_undo_clear_index_in_index(struct index_state *istate)
+{
+	int i;
+	for (i = 0; i < istate->cache_nr; i++) {
+		struct cache_entry *ce = istate->cache[i];
+		if (ce->ce_flags & CE_REUC) {
+			ce->ce_flags = (ce->ce_flags & ~CE_REUC) | CE_REMOVE;
+			istate->cache_changed = 1;
+		}
+	}
+}
+
+static void resolve_undo_clear_index_separate(struct index_state *istate)
 {
 	struct string_list *resolve_undo = istate->resolve_undo;
 	if (!resolve_undo)
@@ -113,15 +190,31 @@ void resolve_undo_clear_index(struct index_state *istate)
 	istate->cache_changed = 1;
 }
 
+void resolve_undo_clear_index(struct index_state *istate)
+{
+	switch (istate->resolve_undo_state) {
+	case RESOLVE_UNDO_NONE:
+		return;
+	case RESOLVE_UNDO_SEPARATE:
+		resolve_undo_clear_index_separate(istate);
+		break;
+	case RESOLVE_UNDO_IN_INDEX:
+		resolve_undo_clear_index_in_index(istate);
+		break;
+	default:
+		die("BUG: invalid resolve_undo_state");
+	}
+	istate->resolve_undo_state = RESOLVE_UNDO_NONE;
+}
+
 int unmerge_index_entry_at(struct index_state *istate, int pos)
 {
 	struct cache_entry *ce;
-	struct string_list_item *item;
-	struct resolve_undo_info *ru;
-	int i, err = 0;
+	int i, found = 0;
 
-	if (!istate->resolve_undo)
+	if (istate->resolve_undo_state == RESOLVE_UNDO_NONE)
 		return pos;
+	assert (istate->resolve_undo_state == RESOLVE_UNDO_IN_INDEX);
 
 	ce = istate->cache[pos];
 	if (ce_stage(ce)) {
@@ -131,37 +224,29 @@ int unmerge_index_entry_at(struct index_state *istate, int pos)
 			pos++;
 		return pos - 1; /* return the last entry processed */
 	}
-	item = string_list_lookup(istate->resolve_undo, ce->name);
-	if (!item)
-		return pos;
-	ru = item->util;
-	if (!ru)
-		return pos;
-	remove_index_entry_at(istate, pos);
-	for (i = 0; i < 3; i++) {
-		struct cache_entry *nce;
-		if (!ru->mode[i])
-			continue;
-		nce = make_cache_entry(ru->mode[i], ru->sha1[i],
-				       ce->name, i + 1, 0);
-		if (add_index_entry(istate, nce, ADD_CACHE_OK_TO_ADD)) {
-			err = 1;
-			error("cannot unmerge '%s'", ce->name);
-		}
+
+	for (i = pos+1; (i < istate->cache_nr) &&
+		     !strcmp(istate->cache[i]->name, ce->name); i++) {
+		struct cache_entry *unmerged = istate->cache[i];
+		assert (ce_stage(unmerged));
+		found = i;
+		unmerged->ce_flags &= ~CE_REUC;
 	}
-	if (err)
-		return pos;
-	free(ru);
-	item->util = NULL;
-	return unmerge_index_entry_at(istate, pos);
+	if (found) {
+		remove_index_entry_at(istate, pos);
+		return found-1;
+	}
+	return pos;
 }
 
 void unmerge_index(struct index_state *istate, const char **pathspec)
 {
 	int i;
 
-	if (!istate->resolve_undo)
+	if (istate->resolve_undo_state == RESOLVE_UNDO_NONE)
 		return;
+	if (istate->resolve_undo_state == RESOLVE_UNDO_SEPARATE)
+		resolve_undo_move_into_index(istate);
 
 	for (i = 0; i < istate->cache_nr; i++) {
 		struct cache_entry *ce = istate->cache[i];
@@ -213,6 +298,11 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 	struct string_list_item *item;
 	struct directory_entry *current;
 
+	fprintf(stderr, "dirs:");
+	for (current = de; current; current = current->next)
+		fprintf(stderr, " '%s'", current->pathname);
+	fprintf(stderr, "\n");
+
 	if (!resolve_undo)
 		return;
 	for_each_string_list_item(item, resolve_undo) {
@@ -226,10 +316,14 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 			continue;
 
 		super = super_directory(item->string);
-		while (super && current && strcmp(current->pathname, super) != 0)
+		fprintf(stderr, "item: %s\n", item->string);
+		while (super && current && strcmp(current->pathname, super) != 0) {
+			fprintf(stderr, "skipped: %s\n", current->pathname);
 			current = current->next;
+		}
 		if (!current)
 			continue;
+		fprintf(stderr, "found: %s\n", current->pathname);
 		ce = xmalloc(conflict_entry_size(strlen(item->string)));
 		ce->entries = NULL;
 		ce->nfileconflicts = 0;

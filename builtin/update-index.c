@@ -531,6 +531,8 @@ static int do_unresolve(int ac, const char **av,
 	 */
 	read_head_pointers();
 
+	resolve_undo_move_into_index(&the_index);
+
 	for (i = 1; i < ac; i++) {
 		const char *arg = av[i];
 		const char *p = prefix_path(prefix, prefix_length, arg);

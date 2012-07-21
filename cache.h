@@ -220,6 +220,10 @@ struct ondisk_conflict_part {
 
 #define CE_UNPACKED          (1 << 24)
 #define CE_NEW_SKIP_WORKTREE (1 << 25)
+#define CE_REUC              (1 << 26) /* a resolved conflict entry */
+
+/* most operations ignore CE_REMOVE and CE_REUC entries */
+#define CE_IGNORE (CE_REMOVE | CE_REUC)
 
 /*
  * Extended on-disk flags
@@ -329,11 +333,18 @@ static inline unsigned int canon_mode(unsigned int mode)
 #define directory_entry_size(len) (offsetof(struct directory_entry,pathname) + (len) + 1)
 #define conflict_entry_size(len) (offsetof(struct conflict_entry,name) + (len) + 1)
 
+enum resolve_undo_state_enum {
+	RESOLVE_UNDO_NONE,
+	RESOLVE_UNDO_IN_INDEX,
+	RESOLVE_UNDO_SEPARATE
+};
+
 struct index_state {
 	struct cache_entry **cache;
 	unsigned int version;
 	unsigned int cache_nr, cache_alloc, cache_changed;
 	struct string_list *resolve_undo;
+	enum resolve_undo_state_enum resolve_undo_state;
 	struct cache_tree *cache_tree;
 	struct cache_time timestamp;
 	unsigned name_hash_initialized : 1,

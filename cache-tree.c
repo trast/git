@@ -339,7 +339,7 @@ static int update_one(struct cache_tree *it,
 				mode, sha1_to_hex(sha1), entlen+baselen, path);
 		}
 
-		if (ce->ce_flags & (CE_REMOVE | CE_INTENT_TO_ADD))
+		if (ce->ce_flags & (CE_IGNORE | CE_INTENT_TO_ADD))
 			continue; /* entry being removed or placeholder */
 
 		strbuf_grow(&buffer, entlen + 100);

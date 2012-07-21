@@ -1389,7 +1389,7 @@ static int check_ok_to_remove(const char *name, int len, int dtype,
 	 */
 	result = index_name_exists(&o->result, name, len, 0);
 	if (result) {
-		if (result->ce_flags & CE_REMOVE)
+		if (result->ce_flags & CE_IGNORE)
 			return 0;
 	}
 

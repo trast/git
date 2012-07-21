@@ -578,14 +578,20 @@ void remove_marked_cache_entries(struct index_state *istate)
 
 int remove_file_from_index_extended(struct index_state *istate, const char *path, int save_reuc)
 {
-	int pos = index_name_pos(istate, path, strlen(path));
+	int pos;
+
+	if (save_reuc && istate->resolve_undo_state == RESOLVE_UNDO_SEPARATE)
+		resolve_undo_move_into_index(istate);
+
+	pos = index_name_pos(istate, path, strlen(path));
 	if (pos < 0)
 		pos = -pos-1;
 	cache_tree_invalidate_path(istate->cache_tree, path);
 	while (pos < istate->cache_nr && !strcmp(istate->cache[pos]->name, path)) {
 		if (save_reuc)
-			record_resolve_undo(istate, istate->cache[pos]);
-		remove_index_entry_at(istate, pos);
+			convert_to_resolve_undo(istate, istate->cache[pos++]);
+		else
+			remove_index_entry_at(istate, pos);
 	}
 	return 0;
 }
@@ -892,7 +898,7 @@ static int has_file_name(struct index_state *istate,
 			continue;
 		if (p->name[len] != '/')
 			continue;
-		if (p->ce_flags & CE_REMOVE)
+		if (p->ce_flags & CE_IGNORE)
 			continue;
 		retval = -1;
 		if (!ok_to_replace)
@@ -935,7 +941,7 @@ static int has_dir_name(struct index_state *istate,
 			 * it is Ok to have a directory at the same
 			 * path.
 			 */
-			if (!(istate->cache[pos]->ce_flags & CE_REMOVE)) {
+			if (!(istate->cache[pos]->ce_flags & CE_IGNORE)) {
 				retval = -1;
 				if (!ok_to_replace)
 					break;
@@ -957,7 +963,7 @@ static int has_dir_name(struct index_state *istate,
 			    (p->name[len] != '/') ||
 			    memcmp(p->name, name, len))
 				break; /* not our subdirectory */
-			if (ce_stage(p) == stage && !(p->ce_flags & CE_REMOVE))
+			if (ce_stage(p) == stage && !(p->ce_flags & CE_IGNORE))
 				/*
 				 * p is at the same stage as our entry, and
 				 * is a subdirectory of what we are looking
@@ -989,7 +995,7 @@ static int check_file_directory_conflict(struct index_state *istate,
 	/*
 	 * When ce is an "I am going away" entry, we allow it to be added
 	 */
-	if (ce->ce_flags & CE_REMOVE)
+	if (ce->ce_flags & CE_IGNORE)
 		return 0;
 
 	/*
@@ -1030,11 +1036,10 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	 * will always replace all non-merged entries..
 	 */
 	if (pos < istate->cache_nr && ce_stage(ce) == 0) {
-		while (ce_same_name(istate->cache[pos], ce)) {
+		while (pos < istate->cache_nr && ce_same_name(istate->cache[pos], ce)) {
 			ok_to_add = 1;
-			record_resolve_undo(istate, istate->cache[pos]);
-			if (!remove_index_entry_at(istate, pos))
-				break;
+			convert_to_resolve_undo(istate, istate->cache[pos]);
+			pos++;
 		}
 	}
 
@@ -1292,7 +1297,7 @@ static struct cache_entry *refresh_cache_entry(struct cache_entry *ce, int reall
  * Index File I/O
  *****************************************************************/
 
-#define INDEX_FORMAT_DEFAULT 5
+#define INDEX_FORMAT_DEFAULT 3
 
 /*
  * dev/ino/uid/gid/size are also just tracked to the low 32 bits
@@ -1431,6 +1436,7 @@ static int read_index_extension(struct index_state *istate,
 		break;
 	case CACHE_EXT_RESOLVE_UNDO:
 		istate->resolve_undo = resolve_undo_read(data, sz);
+		istate->resolve_undo_state = RESOLVE_UNDO_SEPARATE;
 		break;
 	default:
 		if (*ext < 'A' || 'Z' < *ext)
@@ -1762,7 +1768,7 @@ static struct conflict_entry *read_conflicts_v5(struct directory_entry *de,
 		int k;
 
 		cp_current = NULL;
-		fprintf(stderr, "%i %i %u\n", croffset, i, mmap_size);
+		fprintf(stderr, "%i %i %lu\n", croffset, i, mmap_size);
 		name = (char *)mmap + croffset;
 		len = strlen(name);
 		croffset += len + 1;
@@ -2529,7 +2535,7 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	struct strbuf previous_name_buf = STRBUF_INIT, *previous_name;
 
 	for (i = removed = extended = 0; i < entries; i++) {
-		if (cache[i]->ce_flags & CE_REMOVE)
+		if (cache[i]->ce_flags & CE_IGNORE)
 			removed++;
 
 		/* reduce extended entries if possible */
@@ -2559,7 +2565,7 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	previous_name = (hdr_version == 4) ? &previous_name_buf : NULL;
 	for (i = 0; i < entries; i++) {
 		struct cache_entry *ce = cache[i];
-		if (ce->ce_flags & CE_REMOVE)
+		if (ce->ce_flags & CE_IGNORE)
 			continue;
 		if (!ce_uptodate(ce) && is_racy_timestamp(istate, ce))
 			ce_smudge_racily_clean_entry(ce);
@@ -2579,13 +2585,15 @@ static int write_index_v2(struct index_state *istate, int newfd)
 		if (err)
 			return -1;
 	}
-	if (istate->resolve_undo) {
+	if (istate->resolve_undo_state != RESOLVE_UNDO_NONE) {
 		struct strbuf sb = STRBUF_INIT;
 
-		resolve_undo_write(&sb, istate->resolve_undo);
-		err = write_index_ext_header(&c, newfd, CACHE_EXT_RESOLVE_UNDO,
-					     sb.len) < 0
-			|| ce_write(&c, newfd, sb.buf, sb.len) < 0;
+		resolve_undo_write(&sb, istate);
+		err = 0;
+		if (sb.len)
+			err = write_index_ext_header(&c, newfd, CACHE_EXT_RESOLVE_UNDO,
+						     sb.len) < 0
+				|| ce_write(&c, newfd, sb.buf, sb.len) < 0;
 		strbuf_release(&sb);
 		if (err)
 			return -1;

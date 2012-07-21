@@ -6,12 +6,13 @@ struct resolve_undo_info {
 	unsigned char sha1[3][20];
 };
 
-extern void record_resolve_undo(struct index_state *, struct cache_entry *);
-extern void resolve_undo_write(struct strbuf *, struct string_list *);
+extern void convert_to_resolve_undo(struct index_state *, struct cache_entry *);
+extern void resolve_undo_write(struct strbuf *, struct index_state *);
 extern struct string_list *resolve_undo_read(const char *, unsigned long);
 extern void resolve_undo_clear_index(struct index_state *);
 extern int unmerge_index_entry_at(struct index_state *, int);
 extern void unmerge_index(struct index_state *, const char **);
+extern void resolve_undo_move_into_index(struct index_state *);
 
 extern void resolve_undo_convert_v5(struct index_state *, struct conflict_entry *);
 extern void resolve_undo_to_ondisk_v5(struct string_list *, struct directory_entry *);
