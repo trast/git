@@ -192,8 +192,6 @@ struct ondisk_conflict_part {
 #define CE_EXTENDED  (0x4000)
 #define CE_VALID     (0x8000)
 #define CE_STAGESHIFT 12
-#define CE_INTENTTOADD_V5  (0x8000)
-#define CE_SKIPWORKTREE_V5 (0x0800)
 
 #define CONFLICT_CONFLICTED (0x8000)
 #define CONFLICT_STAGESHIFT 13
@@ -230,6 +228,18 @@ struct ondisk_conflict_part {
 #define CE_EXTENDED2         (1 << 31)
 
 #define CE_EXTENDED_FLAGS (CE_INTENT_TO_ADD | CE_SKIP_WORKTREE)
+
+/*
+ * Representation of the extended on-disk flags in the v5 format.
+ * They must not collide with the ordinary on-disk flags, and need to
+ * fit in 16 bits.  Note however that v5 does not save the name
+ * length.
+ */
+#define CE_INTENTTOADD_V5  (0x4000)
+#define CE_SKIPWORKTREE_V5 (0x0800)
+#if (CE_VALID|CE_STAGEMASK) & (CE_INTENTTOADD_V5|CE_SKIPWORKTREE_V5)
+#error "v5 on-disk flags collide with ordinary on-disk flags"
+#endif
 
 /*
  * Safeguard to avoid saving wrong flags:
