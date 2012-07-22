@@ -2018,6 +2018,7 @@ static void read_index_filtered_v5(struct index_state *istate,
 	while (de) {
 		if (match_pathspec(index_filter_pathspec, de->pathname, de->de_pathlen, 0, NULL)) {
 			oldpath = de->pathname;
+			entry_offset = de->de_foffset + foffsetblock;
 			do {
 				de = read_entries_v5(istate, de, &entry_offset,
 						mmap, mmap_size, &nr, &foffsetblock);
