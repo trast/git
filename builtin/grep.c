@@ -935,6 +935,7 @@ int cmd_grep(int argc, const char **argv, const char *prefix)
 	}
 
 	paths = get_pathspec(prefix, argv + i);
+	index_filter_pathspec = paths;
 	init_pathspec(&pathspec, paths);
 	pathspec.max_depth = opt.max_depth;
 	pathspec.recursive = 1;
