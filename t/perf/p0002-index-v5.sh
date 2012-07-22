@@ -10,8 +10,8 @@ test_expect_success 'convert to v3' '
 	git update-index --index-version=3
 '
 
-test_perf 'v[23]: ls-files' '
-	git ls-files >/dev/null
+test_perf 'v[23]: update-index' '
+	git update-index >/dev/null
 '
 
 subdir=$(git ls-files | sed 's#/[^/]*$##' | grep -v '^$' | uniq | tail +30 | head -1)
@@ -24,8 +24,8 @@ test_expect_success 'convert to v4' '
 	git update-index --index-version=4
 '
 
-test_perf 'v4: ls-files' '
-	git ls-files >/dev/null
+test_perf 'v4: update-index' '
+	git update-index >/dev/null
 '
 
 test_perf "v4: grep nonexistent -- subdir" "
@@ -36,8 +36,8 @@ test_expect_success 'convert to v5' '
 	git update-index --index-version=5
 '
 
-test_perf 'v5: ls-files' '
-	git ls-files >/dev/null
+test_perf 'v5: update-index' '
+	git update-index >/dev/null
 '
 
 test_perf "v5: grep nonexistent -- subdir" "
