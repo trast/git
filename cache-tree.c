@@ -627,6 +627,8 @@ static void convert_one_to_ondisk_v5(struct hash_table *table, struct cache_tree
 	search = found;
 	while (search && strcmp(path, search->pathname + search->de_pathlen - strlen(path)) != 0)
 		search = search->next_hash;
+	if (!search)
+		return;
 	search->de_nentries = it->entry_count;
 	if (0 <= it->entry_count)
 		hashcpy(search->sha1, it->sha1);
