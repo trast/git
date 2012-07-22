@@ -2672,7 +2672,7 @@ static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directo
 {
 	struct ondisk_directory_entry *ondisk;
 
-	ondisk = xcalloc(1, sizeof(struct ondisk_directory_entry));
+	ondisk = xmalloc(sizeof(struct ondisk_directory_entry));
 	ondisk->foffset   = htonl(de->de_foffset);
 	ondisk->cr        = htonl(de->de_cr);
 	ondisk->ncr       = htonl(de->de_ncr);
@@ -2703,7 +2703,7 @@ static struct ondisk_conflict_part *conflict_to_ondisk(struct conflict_part *cp)
 {
 	struct ondisk_conflict_part *ondisk;
 	
-	ondisk = xcalloc(1, sizeof(struct ondisk_conflict_part));
+	ondisk = xmalloc(sizeof(struct ondisk_conflict_part));
 	ondisk->flags      = htons(cp->flags);
 	ondisk->entry_mode = htons(cp->entry_mode);
 	hashcpy(ondisk->sha1, cp->sha1);
@@ -2888,7 +2888,7 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 		flags |= CE_INTENTTOADD_V5;
 	if (ce->ce_flags & CE_SKIP_WORKTREE)
 		flags |= CE_SKIPWORKTREE_V5;
-	ondisk = xcalloc(1, sizeof(struct ondisk_cache_entry_v5));
+	ondisk = xmalloc(sizeof(struct ondisk_cache_entry_v5));
 	ondisk->flags      = htons(flags);
 	ondisk->mode       = htons(ce->ce_mode);
 	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
