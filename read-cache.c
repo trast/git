@@ -2048,7 +2048,7 @@ static void read_index_filtered_v5(struct index_state *istate,
 	
 	de = root_directory;
 	while (de) {
-		if (match_pathspec(index_filter_pathspec, de->pathname, de->de_pathlen, 0, NULL)) {
+		if (match_pathspec(adjusted_pathspec, de->pathname, de->de_pathlen, 0, NULL)) {
 			unsigned int subdir_foffsetblock = de->de_foffset + foffsetblock;
 			unsigned int *off = mmap + subdir_foffsetblock;
 			unsigned int subdir_entry_offset = entry_offset + ntoh_l(*off);
