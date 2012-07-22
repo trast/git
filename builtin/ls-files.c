@@ -508,9 +508,6 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	if (prefix)
 		prefix_len = strlen(prefix);
 
-	index_open(&the_index);
-	index_load_filtered(&the_index, "Documentation/");
-
 	git_config(git_default_config, NULL);
 
 	if (read_cache() < 0)

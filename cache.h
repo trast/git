@@ -27,6 +27,8 @@ typedef struct git_zstream {
 	unsigned char *next_out;
 } git_zstream;
 
+extern char **index_filter_pathspec;
+
 void git_inflate_init(git_zstream *);
 void git_inflate_init_gzip_only(git_zstream *);
 void git_inflate_end(git_zstream *);
