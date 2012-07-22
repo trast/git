@@ -2744,7 +2744,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			search = current;
 		}
 		if (!ce_stage(cache[i]) || !conflict_entry
-			|| strcmp(conflict_entry->name, cache[i]->name) != 0) {
+			|| strcmp(conflict_entry->name, cache[i]->name)) {
 			search->de_nfiles++;
 			*total_file_len += ce_namelen(cache[i]) + 1;
 			if (search->de_pathlen)
@@ -2760,8 +2760,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			}
 		}
 		if (ce_stage(cache[i]) > 0 && (!conflict_entry
-			|| strcmp(conflict_entry->name, cache[i]->name) != 0)) {
-			struct conflict_entry *conflict_new;
+			|| strcmp(conflict_entry->name, cache[i]->name))) {
 			struct conflict_part *conflict_part;
 			int pathlen;
 
@@ -2773,22 +2772,22 @@ static struct directory_entry *find_directories(struct index_state *istate,
 			search->conflict_size -= pathlen;
 			search->conflict_size += sizeof(struct ondisk_conflict_part);
 
-			conflict_new = xmalloc(conflict_entry_size(ce_namelen(cache[i])));
-			conflict_new->nfileconflicts = 1;
-			conflict_new->namelen = ce_namelen(cache[i]);
-			memcpy(conflict_new->name, cache[i]->name, ce_namelen(cache[i]));
-			conflict_new->name[ce_namelen(cache[i])] = '\0';
-			conflict_new->pathlen = pathlen;
+			conflict_entry = xmalloc(conflict_entry_size(ce_namelen(cache[i])));
+			conflict_entry->nfileconflicts = 1;
+			conflict_entry->namelen = ce_namelen(cache[i]);
+			memcpy(conflict_entry->name, cache[i]->name, ce_namelen(cache[i]));
+			conflict_entry->name[ce_namelen(cache[i])] = '\0';
+			conflict_entry->pathlen = pathlen;
 			conflict_part = conflict_part_from_inmemory(cache[i]);
-			conflict_new->entries = conflict_part;
-			conflict_new->next = NULL;
+			conflict_entry->entries = conflict_part;
+			conflict_entry->next = NULL;
 
 			if (search->conflict == NULL) {
-				search->conflict = conflict_new;
+				search->conflict = conflict_entry;
 				search->conflict_last = search->conflict;
 				search->conflict_last->next = NULL;
 			} else {
-				search->conflict_last->next = conflict_new;
+				search->conflict_last->next = conflict_entry;
 				search->conflict_last = search->conflict_last->next;
 				search->conflict_last->next = NULL;
 			}

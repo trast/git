@@ -303,7 +303,7 @@ void resolve_undo_to_ondisk_v5(struct hash_table *table,
 		if (ce->pathlen != 0)
 			ce->pathlen++;
 		current->de_ncr++;
-		current->conflict_size += ce->namelen + 1;
+		current->conflict_size += ce->namelen - ce->pathlen + 1 + 8;
 		ce->next = NULL;
 		for (i = 0; i < 3; i++) {
 			if (ui->mode[i]) {
