@@ -207,11 +207,13 @@ void resolve_undo_convert_v5(struct index_state *istate,
 	}
 }
 
-void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
+void resolve_undo_to_ondisk_v5(struct hash_table *table,
+				struct string_list *resolve_undo,
+				unsigned int *ndir, int *total_dir_len,
 				struct directory_entry *de)
 {
 	struct string_list_item *item;
-	struct directory_entry *current;
+	struct directory_entry *search;
 
 	if (!resolve_undo)
 		return;
@@ -219,17 +221,78 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 		struct conflict_entry *ce;
 		struct resolve_undo_info *ui = item->util;
 		char *super;
-		int i;
+		int i, dir_len;
+		uint32_t crc;
+		struct directory_entry *found, *current, *x;
 
-		current = de;
 		if (!ui)
 			continue;
 
 		super = super_directory(item->string);
-		while (super && current && strcmp(current->pathname, super) != 0)
-			current = current->next;
-		if (!current)
-			continue;
+		if (!super)
+			dir_len = 0;
+		else
+			dir_len = strlen(super);
+		crc = crc32(0, (Bytef*)super, dir_len);
+		found = lookup_hash(crc, table);
+		current = NULL;
+		x = NULL;
+		
+		while (!found) {
+			struct directory_entry *insert, *new;
+
+			new = init_directory_entry(super, dir_len);
+			if (!current)
+				current = new;
+			else
+				new->de_nsubtrees = 0;
+			insert = (struct directory_entry *)insert_hash(crc, new, table);
+			if (insert) {
+				while (insert->next_hash)
+					insert = insert->next_hash;
+				insert->next_hash = new;
+			}
+			new->next = x;
+			x = new;
+			(*ndir)++;
+			*total_dir_len += new->de_pathlen + 2;
+			super = super_directory(super);
+			if (!super)
+				dir_len = 0;
+			else
+				dir_len = strlen(super);
+			crc = crc32(0, (Bytef*)super, dir_len);
+			found = lookup_hash(crc, table);
+		}
+		search = found;
+		while (search->next_hash && strcmp(super, search->pathname) != 0)
+			search = search->next_hash;
+		if (search && !current)
+			current = search;
+		if (!search && !current)
+			current = x;
+		if (!super && x) {
+			x->next = de->next;
+			de->next = x;
+			de->de_nsubtrees++;
+		}
+		/* else { */
+			/* super = super_directory(super); */
+			/* crc = crc32(0, (Bytef*)super, dir_len); */
+			/* if (x) { */
+			/* 	found = lookup_hash(crc, table); */
+			/* 	search = found; */
+			/* 	while (search->next_hash && strcmp(super, search->pathname) != 0) */
+			/* 		search = search->next_hash; */
+			/* 	if (search) { */
+			/* 		x->next = search->next; */
+			/* 		search->next = x; */
+			/* 		search->de_nsubtrees++; */
+			/* 	} */
+			/* } */
+		/* } */
+
+
 		ce = xmalloc(conflict_entry_size(strlen(item->string)));
 		ce->entries = NULL;
 		ce->nfileconflicts = 0;
@@ -237,7 +300,6 @@ void resolve_undo_to_ondisk_v5(struct string_list *resolve_undo,
 		memcpy(ce->name, item->string, ce->namelen);
 		ce->name[ce->namelen] = '\0';
 		ce->pathlen = current->de_pathlen;
-		fprintf(stderr, "path: %s name: %s len: %i\n", current->pathname, ce->name, ce->pathlen);
 		if (ce->pathlen != 0)
 			ce->pathlen++;
 		current->de_ncr++;

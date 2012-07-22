@@ -14,6 +14,6 @@ extern int unmerge_index_entry_at(struct index_state *, int);
 extern void unmerge_index(struct index_state *, const char **);
 
 extern void resolve_undo_convert_v5(struct index_state *, struct conflict_entry *);
-extern void resolve_undo_to_ondisk_v5(struct string_list *, struct directory_entry *);
+extern void resolve_undo_to_ondisk_v5(struct hash_table *, struct string_list *, unsigned int *, int *, struct directory_entry *);
 
 #endif

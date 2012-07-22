@@ -1762,7 +1762,6 @@ static struct conflict_entry *read_conflicts_v5(struct directory_entry *de,
 		int k;
 
 		cp_current = NULL;
-		fprintf(stderr, "%i %i %u\n", croffset, i, mmap_size);
 		name = (char *)mmap + croffset;
 		len = strlen(name);
 		croffset += len + 1;
@@ -1773,7 +1772,6 @@ static struct conflict_entry *read_conflicts_v5(struct directory_entry *de,
 		memcpy(conflict_new->name, de->pathname, de->de_pathlen);
 		memcpy(conflict_new->name + de->de_pathlen, name, len);
 		conflict_new->name[de->de_pathlen + len] = '\0';
-		fprintf(stderr, "b %s\n", name);
 		conflict_new->namelen = de->de_pathlen + len;
 		conflict_new->nfileconflicts = ntoh_l(*nfileconflicts);
 		conflict_new->entries = NULL;
@@ -2851,6 +2849,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	}
 	if (istate->cache_tree)
 		cache_tree_to_ondisk_v5(&table, istate->cache_tree);
+	resolve_undo_to_ondisk_v5(&table, istate->resolve_undo, ndir, total_dir_len, de);
 	return de;
 }
 
@@ -3020,7 +3019,6 @@ static int write_conflict_v5(struct conflict_entry *conflict, int fd)
 		unsigned int to_write;
 
 		crc = 0;
-		fprintf(stderr, "a %i %s\n", current->entries->flags & CONFLICT_CONFLICTED, current->name + current->pathlen);
 		if (ce_write_v5(&crc, fd,
 		     (Bytef*)(current->name + current->pathlen),
 		     current->namelen - current->pathlen) < 0)
@@ -3091,7 +3089,6 @@ static int write_index_v5(struct index_state *istate, int newfd)
 	total_file_len = 0;
 	de = find_directories(istate, entries, &ndir, &non_conflicted,
 			&total_dir_len, &total_file_len);
-	resolve_undo_to_ondisk_v5(istate->resolve_undo, de);
 	hdr_v5.hdr_ndir = htonl(ndir);
 
 	/*
