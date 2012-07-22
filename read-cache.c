@@ -2635,24 +2635,12 @@ static int write_index_v2(struct index_state *istate, int newfd)
 
 char *super_directory(const char *filename)
 {
-	char *prev, *last, *dir_name;
-	int last_slash_pos;
+	char *slash;
 
-	prev = NULL;
-	dir_name = NULL;
-	last = strchr(filename, '/');
-	while (last != NULL)
-	{
-		prev = last;
-		last = strchr(last + 1, '/');
-	}
-	if (prev) {
-		last_slash_pos = prev - filename;
-		dir_name = xmalloc(sizeof(char) * last_slash_pos + 1);
-		memcpy(dir_name, filename, last_slash_pos);
-		dir_name[last_slash_pos] = '\0';
-	}
-	return dir_name;
+	slash = strrchr(filename, '/');
+	if (slash)
+		return xmemdupz(filename, slash-filename);
+	return NULL;
 }
 
 struct directory_entry *init_directory_entry(char *pathname, int len)
