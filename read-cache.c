@@ -2032,8 +2032,15 @@ static void read_index_filtered_v5(struct index_state *istate,
 		if (seen[i] == MATCHED_EXACTLY)
 			adjusted_pathspec[i] = index_filter_pathspec[i];
 		else {
-			const char *super = super_directory(index_filter_pathspec[i]);
-			if (!super) {
+			char *super = strdup(index_filter_pathspec[i]);
+			int len = strlen(super);
+			while (len && super[len-1] == '/') /* strip trailing / */
+				super[len-- - 1] = '\0';
+			while (len && super[len-1] != '/') /* scan backwards to next / */
+				len--;
+			if (len >= 0)
+				super[len--] = '\0';
+			if (len <= 0) {
 				need_root = 1;
 				break;
 			}
