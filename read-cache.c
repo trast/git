@@ -1832,8 +1832,7 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 					void *mmap,
 					unsigned long mmap_size,
 					int *nr,
-					unsigned int *foffsetblock,
-					int something_in_queue)
+					unsigned int *foffsetblock)
 {
 	struct entry_queue *queue = NULL, *current = NULL;
 	struct conflict_entry *conflict_queue, *conflict_current;
@@ -1875,18 +1874,18 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		}
 	}
 
+	de = de->next;
+
 	while (queue) {
-		if (de->next != NULL
-		    && strcmp(queue->ce->name, de->next->pathname) > 0) {
-			de = de->next;
+		if (de != NULL
+		    && strcmp(queue->ce->name, de->pathname) > 0) {
 			de = read_entries_v5(istate,
 					de,
 					entry_offset,
 					mmap,
 					mmap_size,
 					nr,
-					foffsetblock,
-					1);
+					foffsetblock);
 		} else {
 			set_index_entry(istate, *nr, queue->ce);
 			(*nr)++;
@@ -1896,17 +1895,6 @@ static struct directory_entry *read_entries_v5(struct index_state *istate,
 		}
 	}
 
-	if (de->next != NULL && !something_in_queue) {
-		de = de->next;
-		de = read_entries_v5(istate,
-				de,
-				entry_offset,
-				mmap,
-				mmap_size,
-				nr,
-				foffsetblock,
-				0);
-	}
 	return de;
 }
 
@@ -1973,7 +1961,7 @@ void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
 	unsigned long dir_offset, entry_offset;
 	struct cache_version_header *hdr;
 	struct cache_header_v5 *hdr_v5;
-	struct directory_entry *directory_entries;
+	struct directory_entry *directory_entries, *de;
 	int nr;
 	unsigned int foffsetblock;
 
@@ -1993,8 +1981,10 @@ void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
 
 	nr = 0;
 	foffsetblock = dir_offset;
-	read_entries_v5(istate, directory_entries, &entry_offset,
-			mmap, mmap_size, &nr, &foffsetblock, 0);
+	de = directory_entries;
+	while (de)
+		de = read_entries_v5(istate, de, &entry_offset,
+				mmap, mmap_size, &nr, &foffsetblock);
 	istate->cache_tree = cache_tree_convert_v5(directory_entries);
 }
 
