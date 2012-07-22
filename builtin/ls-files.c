@@ -510,9 +510,6 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 
 	git_config(git_default_config, NULL);
 
-	if (read_cache() < 0)
-		die("index file corrupt");
-
 	argc = parse_options(argc, argv, prefix, builtin_ls_files_options,
 			ls_files_usage, 0);
 	if (show_tag || show_valid_bit) {
@@ -540,6 +537,10 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 		setup_work_tree();
 
 	pathspec = get_pathspec(prefix, argv);
+	index_filter_pathspec = pathspec;
+
+	if (read_cache() < 0)
+		die("index file corrupt");
 
 	/* be nice with submodule paths ending in a slash */
 	if (pathspec)
