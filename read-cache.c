@@ -2668,11 +2668,9 @@ struct directory_entry *init_directory_entry(char *pathname, int len)
 	return de;
 }
 
-static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directory_entry *de)
+static void ondisk_from_directory_entry(struct directory_entry *de,
+					struct ondisk_directory_entry *ondisk)
 {
-	struct ondisk_directory_entry *ondisk;
-
-	ondisk = xmalloc(sizeof(struct ondisk_directory_entry));
 	ondisk->foffset   = htonl(de->de_foffset);
 	ondisk->cr        = htonl(de->de_cr);
 	ondisk->ncr       = htonl(de->de_ncr);
@@ -2681,7 +2679,6 @@ static struct ondisk_directory_entry *ondisk_from_directory_entry(struct directo
 	ondisk->nentries  = htonl(de->de_nentries);
 	hashcpy(ondisk->sha1, de->sha1);
 	ondisk->flags     = htons(de->de_flags);
-	return ondisk;
 }
 
 static struct conflict_part *conflict_part_from_inmemory(struct cache_entry *ce)
@@ -2699,15 +2696,12 @@ static struct conflict_part *conflict_part_from_inmemory(struct cache_entry *ce)
 	return conflict;
 }
 
-static struct ondisk_conflict_part *conflict_to_ondisk(struct conflict_part *cp)
+static void conflict_to_ondisk(struct conflict_part *cp,
+				struct ondisk_conflict_part *ondisk)
 {
-	struct ondisk_conflict_part *ondisk;
-	
-	ondisk = xmalloc(sizeof(struct ondisk_conflict_part));
 	ondisk->flags      = htons(cp->flags);
 	ondisk->entry_mode = htons(cp->entry_mode);
 	hashcpy(ondisk->sha1, cp->sha1);
-	return ondisk;
 }
 
 static struct directory_entry *find_directories(struct index_state *istate,
@@ -2877,9 +2871,9 @@ static struct directory_entry *find_directories(struct index_state *istate,
 	return de;
 }
 
-static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry *ce)
+static void ondisk_from_cache_entry(struct cache_entry *ce,
+				    struct ondisk_cache_entry_v5 *ondisk)
 {
-	struct ondisk_cache_entry_v5 *ondisk;
 	unsigned int flags = 0;
 
 	flags |= ce->ce_flags & CE_STAGEMASK;
@@ -2888,7 +2882,6 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 		flags |= CE_INTENTTOADD_V5;
 	if (ce->ce_flags & CE_SKIP_WORKTREE)
 		flags |= CE_SKIPWORKTREE_V5;
-	ondisk = xmalloc(sizeof(struct ondisk_cache_entry_v5));
 	ondisk->flags      = htons(flags);
 	ondisk->mode       = htons(ce->ce_mode);
 	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
@@ -2902,13 +2895,12 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	}
 	ondisk->stat_crc   = htonl(ce->ce_stat_crc);
 	hashcpy(ondisk->sha1, ce->sha1);
-	return ondisk;
 }
 
 static int write_directories_v5(struct directory_entry *de, int fd, int conflict_offset)
 {
 	struct directory_entry *current;
-	struct ondisk_directory_entry *ondisk;
+	struct ondisk_directory_entry ondisk;
 	int current_offset, offset_write, ondisk_size, foffset;
 	uint32_t crc;
 
@@ -2916,14 +2908,14 @@ static int write_directories_v5(struct directory_entry *de, int fd, int conflict
 	 * This is needed because the compiler aligns structs to sizes multipe
 	 * of 4
 	 */
-	ondisk_size = sizeof(ondisk->flags)
-		+ sizeof(ondisk->foffset)
-		+ sizeof(ondisk->cr)
-		+ sizeof(ondisk->ncr)
-		+ sizeof(ondisk->nsubtrees)
-		+ sizeof(ondisk->nfiles)
-		+ sizeof(ondisk->nentries)
-		+ sizeof(ondisk->sha1);
+	ondisk_size = sizeof(ondisk.flags)
+		+ sizeof(ondisk.foffset)
+		+ sizeof(ondisk.cr)
+		+ sizeof(ondisk.ncr)
+		+ sizeof(ondisk.nsubtrees)
+		+ sizeof(ondisk.nfiles)
+		+ sizeof(ondisk.nentries)
+		+ sizeof(ondisk.sha1);
 	current = de;
 	current_offset = 0;
 	foffset = 0;
@@ -2956,8 +2948,8 @@ static int write_directories_v5(struct directory_entry *de, int fd, int conflict
 		}
 		current->de_foffset = foffset;
 		current->de_cr = conflict_offset;
-		ondisk = ondisk_from_directory_entry(current);
-		if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
+		ondisk_from_directory_entry(current, &ondisk);
+		if (ce_write_v5(&crc, fd, &ondisk, ondisk_size) < 0)
 			return -1;
 		crc = htonl(crc);
 		if (ce_write_v5(NULL, fd, &crc, 4) < 0)
@@ -3013,7 +3005,7 @@ static int write_entries_v5(struct index_state *istate,
 		else
 			pathlen = current->de_pathlen + 1;
 		while (ce) {
-			struct ondisk_cache_entry_v5 *ondisk;
+			struct ondisk_cache_entry_v5 ondisk;
 			uint32_t crc, calc_crc;
 
 			if (ce->ce_flags & CE_REMOVE)
@@ -3023,8 +3015,8 @@ static int write_entries_v5(struct index_state *istate,
 			if (ce_write_v5(&crc, fd, ce->name + pathlen,
 					ce_namelen(ce) - pathlen + 1) < 0)
 				return -1;
-			ondisk = ondisk_from_cache_entry(ce);
-			if (ce_write_v5(&crc, fd, ondisk, ondisk_size) < 0)
+			ondisk_from_cache_entry(ce, &ondisk);
+			if (ce_write_v5(&crc, fd, &ondisk, ondisk_size) < 0)
 				return -1;
 			crc = htonl(crc);
 			if (ce_write_v5(NULL, fd, &crc, 4) < 0)
@@ -3059,10 +3051,10 @@ static int write_conflict_v5(struct conflict_entry *conflict, int fd)
 			return -1;
 		current_part = current->entries;
 		while (current_part) {
-			struct ondisk_conflict_part *ondisk;
+			struct ondisk_conflict_part ondisk;
 
-			ondisk = conflict_to_ondisk(current_part);
-			if (ce_write_v5(&crc, fd, (Bytef*)ondisk, sizeof(struct ondisk_conflict_part)) < 0)
+			conflict_to_ondisk(current_part, &ondisk);
+			if (ce_write_v5(&crc, fd, (Bytef*)&ondisk, sizeof(struct ondisk_conflict_part)) < 0)
 				return 0;
 			current_part = current_part->next;
 		}
