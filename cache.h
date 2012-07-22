@@ -1254,7 +1254,7 @@ static inline ssize_t write_str_in_full(int fd, const char *str)
 }
 
 /* directory helper function */
-extern char *super_directory(char *filename);
+extern char *super_directory(const char *filename);
 
 /* pager.c */
 extern void setup_pager(void);

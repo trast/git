@@ -1961,12 +1961,13 @@ static struct directory_entry *read_head_directories_v5(struct index_state *ista
 							void *mmap,
 							unsigned long mmap_size,
 							unsigned int *entry_offset,
-							unsigned int *foffsetblock)
+							unsigned int *foffsetblock,
+							unsigned int *ndirs)
 {
 	unsigned int dir_offset;
 	struct cache_version_header *hdr;
 	struct cache_header_v5 *hdr_v5;
-	struct directory_entry *root_directory, *de;
+	struct directory_entry *root_directory;
 
 	hdr = mmap;
 	hdr_v5 = mmap + sizeof(*hdr);
@@ -1982,6 +1983,7 @@ static struct directory_entry *read_head_directories_v5(struct index_state *ista
 
 	*entry_offset = ntohl(hdr_v5->hdr_fblockoffset);
 	*foffsetblock = dir_offset;
+	*ndirs = ntohl(hdr_v5->hdr_ndir);
 	return root_directory;
 }
 
@@ -2008,11 +2010,41 @@ static void read_index_filtered_v5(struct index_state *istate,
 				unsigned int entry_offset,
 				unsigned int foffsetblock,
 				void *mmap,
-				unsigned long mmap_size)
+				unsigned long mmap_size,
+				unsigned int ndirs)
 {
 	struct directory_entry *de;
 	int nr = 0;
 	char *oldpath;
+	char *seen = xcalloc(1, ndirs);
+	int i;
+	int n;
+	const char **adjusted_pathspec;
+	int need_root = 0;
+
+	for (de = root_directory; de; de = de->next)
+		match_pathspec(index_filter_pathspec, de->pathname, de->de_pathlen, 0, seen);
+	for (n = 0; index_filter_pathspec[n]; n++)
+		/* just count */;
+	adjusted_pathspec = xmalloc((n+1)*sizeof(char *));
+	adjusted_pathspec[n] = NULL;
+	for (i = 0; i < n; i++) {
+		if (seen[i] == MATCHED_EXACTLY)
+			adjusted_pathspec[i] = index_filter_pathspec[i];
+		else {
+			const char *super = super_directory(index_filter_pathspec[i]);
+			if (!super) {
+				need_root = 1;
+				break;
+			}
+			adjusted_pathspec[i] = super;
+		}
+	}
+
+	if (need_root) {
+		read_index_full_v5(istate, root_directory, entry_offset, foffsetblock, mmap, mmap_size);
+		return;
+	}
 	
 	de = root_directory;
 	while (de) {
@@ -2035,14 +2067,14 @@ void read_index_v5(struct index_state *istate, void *mmap, int mmap_size)
 {
 	struct directory_entry *de;
 	unsigned int foffsetblock, entry_offset;
-	int nr;
+	unsigned int ndirs;
 
-	de = read_head_directories_v5(istate, mmap, mmap_size, &entry_offset, &foffsetblock);
+	de = read_head_directories_v5(istate, mmap, mmap_size, &entry_offset, &foffsetblock, &ndirs);
 
 	if (!index_filter_pathspec)
 		read_index_full_v5(istate, de, entry_offset, foffsetblock, mmap, mmap_size);
 	else
-		read_index_filtered_v5(istate, de, entry_offset, foffsetblock, mmap, mmap_size);
+		read_index_filtered_v5(istate, de, entry_offset, foffsetblock, mmap, mmap_size, ndirs);
 }
 
 
@@ -2601,7 +2633,7 @@ static int write_index_v2(struct index_state *istate, int newfd)
 	return 0;
 }
 
-char *super_directory(char *filename)
+char *super_directory(const char *filename)
 {
 	char *prev, *last, *dir_name;
 	int last_slash_pos;
