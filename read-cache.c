@@ -2892,7 +2892,11 @@ static struct ondisk_cache_entry_v5 *ondisk_from_cache_entry(struct cache_entry 
 	ondisk->flags      = htons(flags);
 	ondisk->mode       = htons(ce->ce_mode);
 	ondisk->mtime.sec  = htonl(ce->ce_mtime.sec);
+#ifdef USE_NSEC
 	ondisk->mtime.nsec = htonl(ce->ce_mtime.nsec);
+#else
+	ondisk->mtime.nsec = 0;
+#endif
 	if (!ce->ce_stat_crc) {
 		ce->ce_stat_crc = calculate_stat_crc(ce);
 	}
