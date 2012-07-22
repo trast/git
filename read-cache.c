@@ -2718,7 +2718,7 @@ static struct directory_entry *find_directories(struct index_state *istate,
 						int *total_dir_len,
 						int *total_file_len)
 {
-	int i, dir_len;
+	int i, dir_len = -1;
 	char *dir;
 	struct directory_entry *de, *current, *search, *found, *new, *previous_entry;
 	struct cache_entry **cache = istate->cache;
@@ -2742,16 +2742,20 @@ static struct directory_entry *find_directories(struct index_state *istate,
 		if (!ce_stage(cache[i]) || !conflict_entry
 			|| strcmp(conflict_entry->name, cache[i]->name) != 0)
 			(*non_conflicted)++;
-		dir = super_directory(cache[i]->name);
-		if (!dir)
-			dir_len = 0;
-		else
-			dir_len = strlen(dir);
-		crc = crc32(0, (Bytef*)dir, dir_len);
-		found = lookup_hash(crc, &table);
-		search = found;
-		while (search && dir_len != 0 && strcmp(dir, search->pathname) != 0)
-			search = search->next_hash;
+		if (dir_len < 0 || strncmp(cache[i]->name, dir, dir_len)
+		    || cache[i]->name[dir_len] != '/'
+		    || strchr(cache[i]->name + dir_len + 1, '/')) {
+			dir = super_directory(cache[i]->name);
+			if (!dir)
+				dir_len = 0;
+			else
+				dir_len = strlen(dir);
+			crc = crc32(0, (Bytef*)dir, dir_len);
+			found = lookup_hash(crc, &table);
+			search = found;
+			while (search && dir_len != 0 && strcmp(dir, search->pathname) != 0)
+				search = search->next_hash;
+		}
 		previous_entry = current;
 		if (!search || !found) {
 			struct directory_entry *insert;
