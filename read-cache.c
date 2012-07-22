@@ -2017,11 +2017,13 @@ static void read_index_filtered_v5(struct index_state *istate,
 	de = root_directory;
 	while (de) {
 		if (match_pathspec(index_filter_pathspec, de->pathname, de->de_pathlen, 0, NULL)) {
+			unsigned int subdir_foffsetblock = de->de_foffset + foffsetblock;
+			unsigned int *off = mmap + subdir_foffsetblock;
+			unsigned int subdir_entry_offset = entry_offset + ntoh_l(*off);
 			oldpath = de->pathname;
-			entry_offset = de->de_foffset + foffsetblock;
 			do {
-				de = read_entries_v5(istate, de, &entry_offset,
-						mmap, mmap_size, &nr, &foffsetblock);
+				de = read_entries_v5(istate, de, &subdir_entry_offset,
+						mmap, mmap_size, &nr, &subdir_foffsetblock);
 			} while (de && !prefixcmp(de->pathname, oldpath));
 		} else
 			de = de->next;
@@ -2971,7 +2973,7 @@ static int write_entries_v5(struct index_state *istate,
 			offset_write = htonl(offset);
 			if (ce_write_v5(NULL, fd, &offset_write, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - pathlen + ondisk_size;
+			offset += ce_namelen(ce) - pathlen + 1 + ondisk_size + 4;
 			ce = ce->next;
 		}
 		current = current->next;
@@ -3003,7 +3005,7 @@ static int write_entries_v5(struct index_state *istate,
 			crc = htonl(crc);
 			if (ce_write_v5(NULL, fd, &crc, 4) < 0)
 				return -1;
-			offset += ce_namelen(ce) - pathlen + ondisk_size;
+			offset += ce_namelen(ce) - pathlen + 1 + ondisk_size + 4;
 			ce = ce->next;
 		}
 		current = current->next;
