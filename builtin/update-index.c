@@ -24,6 +24,7 @@ static int allow_remove;
 static int allow_replace;
 static int info_only;
 static int force_remove;
+static int force_rewrite;
 static int verbose;
 static int mark_valid_only;
 static int mark_skip_worktree_only;
@@ -731,6 +732,8 @@ int cmd_update_index(int argc, const char **argv, const char *prefix)
 		OPT_BIT(0, "unmerged", &refresh_args.flags,
 			"refresh even if index contains unmerged entries",
 			REFRESH_UNMERGED),
+		OPT_SET_INT(0, "force-rewrite", &force_rewrite,
+			"force a index rewrite even if there is no change", 1),
 		{OPTION_CALLBACK, 0, "refresh", &refresh_args, NULL,
 			"refresh stat information",
 			PARSE_OPT_NOARG | PARSE_OPT_NONEG,
@@ -889,7 +892,7 @@ int cmd_update_index(int argc, const char **argv, const char *prefix)
 		strbuf_release(&buf);
 	}
 
-	if (active_cache_changed) {
+	if (active_cache_changed || force_rewrite) {
 		if (newfd < 0) {
 			if (refresh_args.flags & REFRESH_QUIET)
 				exit(128);
