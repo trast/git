@@ -13,21 +13,14 @@
 use 5.008;
 use strict;
 use warnings;
-use File::Basename qw(dirname);
+use File::Basename qw(basename dirname);
 use File::Copy;
 use File::Compare;
-use File::Find;
 use File::stat;
 use File::Path qw(mkpath);
 use File::Temp qw(tempdir);
 use Getopt::Long qw(:config pass_through);
 use Git;
-
-my @tools;
-my @working_tree;
-my $rc;
-my $repo = Git->repository();
-my $repo_path = $repo->repo_path();
 
 sub usage
 {
@@ -45,6 +38,8 @@ USAGE
 
 sub find_worktree
 {
+	my ($repo) = @_;
+
 	# Git->repository->wc_path() does not honor changes to the working
 	# tree location made by $ENV{GIT_WORK_TREE} or the 'core.worktree'
 	# config variable.
@@ -63,28 +58,13 @@ sub find_worktree
 	return $worktree;
 }
 
-my $workdir = find_worktree();
-
-sub filter_tool_scripts
-{
-	if (-d $_) {
-		if ($_ ne ".") {
-			# Ignore files in subdirectories
-			$File::Find::prune = 1;
-		}
-	} else {
-		if ((-f $_) && ($_ ne "defaults")) {
-			push(@tools, $_);
-		}
-	}
-}
-
 sub print_tool_help
 {
 	my ($cmd, @found, @notfound);
 	my $gitpath = Git::exec_path();
 
-	find(\&filter_tool_scripts, "$gitpath/mergetools");
+	my @files = map { basename($_) } glob("$gitpath/mergetools/*");
+	my @tools = sort(grep { !m{^defaults$} } @files);
 
 	foreach my $tool (@tools) {
 		$cmd  = "TOOL_MODE=diff";
@@ -99,10 +79,10 @@ sub print_tool_help
 	}
 
 	print "'git difftool --tool=<tool>' may be set to one of the following:\n";
-	print "\t$_\n" for (sort(@found));
+	print "\t$_\n" for (@found);
 
 	print "\nThe following tools are valid, but not currently available:\n";
-	print "\t$_\n" for (sort(@notfound));
+	print "\t$_\n" for (@notfound);
 
 	print "\nNOTE: Some of the tools listed above only work in a windowed\n";
 	print "environment. If run in a terminal-only session, they will fail.\n";
@@ -112,16 +92,19 @@ sub print_tool_help
 
 sub setup_dir_diff
 {
+	my ($repo, $workdir, $symlinks) = @_;
+
 	# Run the diff; exit immediately if no diff found
 	# 'Repository' and 'WorkingCopy' must be explicitly set to insure that
 	# if $GIT_DIR and $GIT_WORK_TREE are set in ENV, they are actually used
 	# by Git->repository->command*.
+	my $repo_path = $repo->repo_path();
 	my $diffrepo = Git->repository(Repository => $repo_path, WorkingCopy => $workdir);
 	my $diffrtn = $diffrepo->command_oneline('diff', '--raw', '--no-abbrev', '-z', @ARGV);
 	exit(0) if (length($diffrtn) == 0);
 
 	# Setup temp directories
-	my $tmpdir = tempdir('git-diffall.XXXXX', CLEANUP => 1, TMPDIR => 1);
+	my $tmpdir = tempdir('git-difftool.XXXXX', CLEANUP => 1, TMPDIR => 1);
 	my $ldir = "$tmpdir/left";
 	my $rdir = "$tmpdir/right";
 	mkpath($ldir) or die $!;
@@ -136,6 +119,7 @@ sub setup_dir_diff
 	my $rindex = '';
 	my %submodule;
 	my %symlink;
+	my @working_tree = ();
 	my @rawdiff = split('\0', $diffrtn);
 
 	my $i = 0;
@@ -203,7 +187,7 @@ sub setup_dir_diff
 	($inpipe, $ctx) = $repo->command_input_pipe(qw/update-index -z --index-info/);
 	print($inpipe $lindex);
 	$repo->command_close_pipe($inpipe, $ctx);
-	$rc = system('git', 'checkout-index', '--all', "--prefix=$ldir/");
+	my $rc = system('git', 'checkout-index', '--all', "--prefix=$ldir/");
 	exit($rc | ($rc >> 8)) if ($rc != 0);
 
 	$ENV{GIT_INDEX_FILE} = "$tmpdir/rindex";
@@ -225,8 +209,13 @@ sub setup_dir_diff
 		unless (-d "$rdir/$dir") {
 			mkpath("$rdir/$dir") or die $!;
 		}
-		copy("$workdir/$file", "$rdir/$file") or die $!;
-		chmod(stat("$workdir/$file")->mode, "$rdir/$file") or die $!;
+		if ($symlinks) {
+			symlink("$workdir/$file", "$rdir/$file") or die $!;
+		} else {
+			copy("$workdir/$file", "$rdir/$file") or die $!;
+			my $mode = stat("$workdir/$file")->mode;
+			chmod($mode, "$rdir/$file") or die $!;
+		}
 	}
 
 	# Changes to submodules require special treatment. This loop writes a
@@ -253,7 +242,7 @@ sub setup_dir_diff
 		}
 	}
 
-	return ($ldir, $rdir);
+	return ($ldir, $rdir, @working_tree);
 }
 
 sub write_to_file
@@ -276,54 +265,80 @@ sub write_to_file
 	close($fh);
 }
 
-# parse command-line options. all unrecognized options and arguments
-# are passed through to the 'git diff' command.
-my ($difftool_cmd, $dirdiff, $extcmd, $gui, $help, $prompt, $tool_help);
-GetOptions('g|gui!' => \$gui,
-	'd|dir-diff' => \$dirdiff,
-	'h' => \$help,
-	'prompt!' => \$prompt,
-	'y' => sub { $prompt = 0; },
-	't|tool:s' => \$difftool_cmd,
-	'tool-help' => \$tool_help,
-	'x|extcmd:s' => \$extcmd);
+sub main
+{
+	# parse command-line options. all unrecognized options and arguments
+	# are passed through to the 'git diff' command.
+	my %opts = (
+		difftool_cmd => undef,
+		dirdiff => undef,
+		extcmd => undef,
+		gui => undef,
+		help => undef,
+		prompt => undef,
+		symlinks => $^O ne 'MSWin32' && $^O ne 'msys',
+		tool_help => undef,
+	);
+	GetOptions('g|gui!' => \$opts{gui},
+		'd|dir-diff' => \$opts{dirdiff},
+		'h' => \$opts{help},
+		'prompt!' => \$opts{prompt},
+		'y' => sub { $opts{prompt} = 0; },
+		'symlinks' => \$opts{symlinks},
+		'no-symlinks' => sub { $opts{symlinks} = 0; },
+		't|tool:s' => \$opts{difftool_cmd},
+		'tool-help' => \$opts{tool_help},
+		'x|extcmd:s' => \$opts{extcmd});
 
-if (defined($help)) {
-	usage(0);
-}
-if (defined($tool_help)) {
-	print_tool_help();
-}
-if (defined($difftool_cmd)) {
-	if (length($difftool_cmd) > 0) {
-		$ENV{GIT_DIFF_TOOL} = $difftool_cmd;
-	} else {
-		print "No <tool> given for --tool=<tool>\n";
-		usage(1);
+	if (defined($opts{help})) {
+		usage(0);
 	}
-}
-if (defined($extcmd)) {
-	if (length($extcmd) > 0) {
-		$ENV{GIT_DIFFTOOL_EXTCMD} = $extcmd;
-	} else {
-		print "No <cmd> given for --extcmd=<cmd>\n";
-		usage(1);
+	if (defined($opts{tool_help})) {
+		print_tool_help();
 	}
-}
-if ($gui) {
-	my $guitool = '';
-	$guitool = Git::config('diff.guitool');
-	if (length($guitool) > 0) {
-		$ENV{GIT_DIFF_TOOL} = $guitool;
+	if (defined($opts{difftool_cmd})) {
+		if (length($opts{difftool_cmd}) > 0) {
+			$ENV{GIT_DIFF_TOOL} = $opts{difftool_cmd};
+		} else {
+			print "No <tool> given for --tool=<tool>\n";
+			usage(1);
+		}
+	}
+	if (defined($opts{extcmd})) {
+		if (length($opts{extcmd}) > 0) {
+			$ENV{GIT_DIFFTOOL_EXTCMD} = $opts{extcmd};
+		} else {
+			print "No <cmd> given for --extcmd=<cmd>\n";
+			usage(1);
+		}
+	}
+	if ($opts{gui}) {
+		my $guitool = Git::config('diff.guitool');
+		if (length($guitool) > 0) {
+			$ENV{GIT_DIFF_TOOL} = $guitool;
+		}
+	}
+
+	# In directory diff mode, 'git-difftool--helper' is called once
+	# to compare the a/b directories.  In file diff mode, 'git diff'
+	# will invoke a separate instance of 'git-difftool--helper' for
+	# each file that changed.
+	if (defined($opts{dirdiff})) {
+		dir_diff($opts{extcmd}, $opts{symlinks});
+	} else {
+		file_diff($opts{prompt});
 	}
 }
 
-# In directory diff mode, 'git-difftool--helper' is called once
-# to compare the a/b directories.  In file diff mode, 'git diff'
-# will invoke a separate instance of 'git-difftool--helper' for
-# each file that changed.
-if (defined($dirdiff)) {
-	my ($a, $b) = setup_dir_diff();
+sub dir_diff
+{
+	my ($extcmd, $symlinks) = @_;
+
+	my $rc;
+	my $repo = Git->repository();
+
+	my $workdir = find_worktree($repo);
+	my ($a, $b, @worktree) = setup_dir_diff($repo, $workdir, $symlinks);
 	if (defined($extcmd)) {
 		$rc = system($extcmd, $a, $b);
 	} else {
@@ -335,14 +350,24 @@ if (defined($dirdiff)) {
 
 	# If the diff including working copy files and those
 	# files were modified during the diff, then the changes
-	# should be copied back to the working tree
-	for my $file (@working_tree) {
-		if (-e "$b/$file" && compare("$b/$file", "$workdir/$file")) {
+	# should be copied back to the working tree.
+	# Do not copy back files when symlinks are used and the
+	# external tool did not replace the original link with a file.
+	for my $file (@worktree) {
+		next if $symlinks && -l "$b/$file";
+		if (-f "$b/$file" && compare("$b/$file", "$workdir/$file")) {
 			copy("$b/$file", "$workdir/$file") or die $!;
-			chmod(stat("$b/$file")->mode, "$workdir/$file") or die $!;
+			my $mode = stat("$b/$file")->mode;
+			chmod($mode, "$workdir/$file") or die $!;
 		}
 	}
-} else {
+	exit(0);
+}
+
+sub file_diff
+{
+	my ($prompt) = @_;
+
 	if (defined($prompt)) {
 		if ($prompt) {
 			$ENV{GIT_DIFFTOOL_PROMPT} = 'true';
@@ -362,3 +387,5 @@ if (defined($dirdiff)) {
 	my $rc = system('git', 'diff', @ARGV);
 	exit($rc | ($rc >> 8));
 }
+
+main();
