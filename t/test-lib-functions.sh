@@ -221,9 +221,16 @@ write_script () {
 # capital letters by convention).
 
 test_set_prereq () {
-	satisfied="$satisfied$1 "
+	satisfied_prereq="$satisfied_prereq$1 "
 }
-satisfied=" "
+satisfied_prereq=" "
+lazy_testable_prereq= lazy_tested_prereq=
+
+# Usage: test_lazy_prereq PREREQ 'script'
+test_lazy_prereq () {
+	lazy_testable_prereq="$lazy_testable_prereq$1 "
+	eval test_prereq_lazily_$1=\$2
+}
 
 test_have_prereq () {
 	# prerequisites can be concatenated with ','
@@ -238,8 +245,29 @@ test_have_prereq () {
 
 	for prerequisite
 	do
+		case " $lazy_tested_prereq " in
+		*" $prerequisite "*)
+			;;
+		*)
+			case " $lazy_testable_prereq " in
+			*" $prerequisite "*)
+				mkdir -p "$TRASH_DIRECTORY/prereq-test-dir"
+				if (
+					eval "script=\$test_prereq_lazily_$prerequisite" &&
+					cd "$TRASH_DIRECTORY/prereq-test-dir" &&
+					eval "$script"
+				)
+				then
+					test_set_prereq $prerequisite
+				fi
+				rm -fr "$TRASH_DIRECTORY/prereq-test-dir"
+				lazy_tested_prereq="$lazy_tested_prereq$prerequisite "
+			esac
+			;;
+		esac
+
 		total_prereq=$(($total_prereq + 1))
-		case $satisfied in
+		case "$satisfied_prereq" in
 		*" $prerequisite "*)
 			ok_prereq=$(($ok_prereq + 1))
 			;;
