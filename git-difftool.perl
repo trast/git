@@ -13,11 +13,12 @@
 use 5.008;
 use strict;
 use warnings;
-use File::Basename qw(basename dirname);
+use File::Basename qw(dirname);
 use File::Copy;
 use File::Compare;
+use File::Find;
 use File::stat;
-use File::Path qw(mkpath);
+use File::Path qw(mkpath rmtree);
 use File::Temp qw(tempdir);
 use Getopt::Long qw(:config pass_through);
 use Git;
@@ -58,13 +59,27 @@ sub find_worktree
 	return $worktree;
 }
 
+sub filter_tool_scripts
+{
+	my ($tools) = @_;
+	if (-d $_) {
+		if ($_ ne ".") {
+			# Ignore files in subdirectories
+			$File::Find::prune = 1;
+		}
+	} else {
+		if ((-f $_) && ($_ ne "defaults")) {
+			push(@$tools, $_);
+		}
+	}
+}
+
 sub print_tool_help
 {
-	my ($cmd, @found, @notfound);
+	my ($cmd, @found, @notfound, @tools);
 	my $gitpath = Git::exec_path();
 
-	my @files = map { basename($_) } glob("$gitpath/mergetools/*");
-	my @tools = sort(grep { !m{^defaults$} } @files);
+	find(sub { filter_tool_scripts(\@tools) }, "$gitpath/mergetools");
 
 	foreach my $tool (@tools) {
 		$cmd  = "TOOL_MODE=diff";
@@ -78,16 +93,35 @@ sub print_tool_help
 		}
 	}
 
-	print "'git difftool --tool=<tool>' may be set to one of the following:\n";
-	print "\t$_\n" for (@found);
+	print << 'EOF';
+'git difftool --tool=<tool>' may be set to one of the following:
+EOF
+	print "\t$_\n" for (sort(@found));
 
-	print "\nThe following tools are valid, but not currently available:\n";
-	print "\t$_\n" for (@notfound);
+	print << 'EOF';
 
-	print "\nNOTE: Some of the tools listed above only work in a windowed\n";
-	print "environment. If run in a terminal-only session, they will fail.\n";
+The following tools are valid, but not currently available:
+EOF
+	print "\t$_\n" for (sort(@notfound));
 
+	print << 'EOF';
+
+NOTE: Some of the tools listed above only work in a windowed
+environment. If run in a terminal-only session, they will fail.
+EOF
 	exit(0);
+}
+
+sub exit_cleanup
+{
+	my ($tmpdir, $status) = @_;
+	my $errno = $!;
+	rmtree($tmpdir);
+	if ($status and $errno) {
+		my ($package, $file, $line) = caller();
+		warn "$file line $line: $errno\n";
+	}
+	exit($status | ($status >> 8));
 }
 
 sub setup_dir_diff
@@ -99,16 +133,12 @@ sub setup_dir_diff
 	# if $GIT_DIR and $GIT_WORK_TREE are set in ENV, they are actually used
 	# by Git->repository->command*.
 	my $repo_path = $repo->repo_path();
-	my $diffrepo = Git->repository(Repository => $repo_path, WorkingCopy => $workdir);
-	my $diffrtn = $diffrepo->command_oneline('diff', '--raw', '--no-abbrev', '-z', @ARGV);
-	exit(0) if (length($diffrtn) == 0);
+	my %repo_args = (Repository => $repo_path, WorkingCopy => $workdir);
+	my $diffrepo = Git->repository(%repo_args);
 
-	# Setup temp directories
-	my $tmpdir = tempdir('git-difftool.XXXXX', CLEANUP => 1, TMPDIR => 1);
-	my $ldir = "$tmpdir/left";
-	my $rdir = "$tmpdir/right";
-	mkpath($ldir) or die $!;
-	mkpath($rdir) or die $!;
+	my @gitargs = ('diff', '--raw', '--no-abbrev', '-z', @ARGV);
+	my $diffrtn = $diffrepo->command_oneline(@gitargs);
+	exit(0) if (length($diffrtn) == 0);
 
 	# Build index info for left and right sides of the diff
 	my $submodule_mode = '160000';
@@ -125,11 +155,15 @@ sub setup_dir_diff
 	my $i = 0;
 	while ($i < $#rawdiff) {
 		if ($rawdiff[$i] =~ /^::/) {
-			print "Combined diff formats ('-c' and '--cc') are not supported in directory diff mode.\n";
+			warn << 'EOF';
+Combined diff formats ('-c' and '--cc') are not supported in
+directory diff mode ('-d' and '--dir-diff').
+EOF
 			exit(1);
 		}
 
-		my ($lmode, $rmode, $lsha1, $rsha1, $status) = split(' ', substr($rawdiff[$i], 1));
+		my ($lmode, $rmode, $lsha1, $rsha1, $status) =
+			split(' ', substr($rawdiff[$i], 1));
 		my $src_path = $rawdiff[$i + 1];
 		my $dst_path;
 
@@ -141,7 +175,7 @@ sub setup_dir_diff
 			$i += 2;
 		}
 
-		if (($lmode eq $submodule_mode) or ($rmode eq $submodule_mode)) {
+		if ($lmode eq $submodule_mode or $rmode eq $submodule_mode) {
 			$submodule{$src_path}{left} = $lsha1;
 			if ($lsha1 ne $rsha1) {
 				$submodule{$dst_path}{right} = $rsha1;
@@ -152,14 +186,16 @@ sub setup_dir_diff
 		}
 
 		if ($lmode eq $symlink_mode) {
-			$symlink{$src_path}{left} = $diffrepo->command_oneline('show', "$lsha1");
+			$symlink{$src_path}{left} =
+				$diffrepo->command_oneline('show', "$lsha1");
 		}
 
 		if ($rmode eq $symlink_mode) {
-			$symlink{$dst_path}{right} = $diffrepo->command_oneline('show', "$rsha1");
+			$symlink{$dst_path}{right} =
+				$diffrepo->command_oneline('show', "$rsha1");
 		}
 
-		if (($lmode ne $null_mode) and ($status !~ /^C/)) {
+		if ($lmode ne $null_mode and $status !~ /^C/) {
 			$lindex .= "$lmode $lsha1\t$src_path\0";
 		}
 
@@ -171,6 +207,13 @@ sub setup_dir_diff
 			}
 		}
 	}
+
+	# Setup temp directories
+	my $tmpdir = tempdir('git-difftool.XXXXX', CLEANUP => 0, TMPDIR => 1);
+	my $ldir = "$tmpdir/left";
+	my $rdir = "$tmpdir/right";
+	mkpath($ldir) or exit_cleanup($tmpdir, 1);
+	mkpath($rdir) or exit_cleanup($tmpdir, 1);
 
 	# If $GIT_DIR is not set prior to calling 'git update-index' and
 	# 'git checkout-index', then those commands will fail if difftool
@@ -184,18 +227,22 @@ sub setup_dir_diff
 	# Populate the left and right directories based on each index file
 	my ($inpipe, $ctx);
 	$ENV{GIT_INDEX_FILE} = "$tmpdir/lindex";
-	($inpipe, $ctx) = $repo->command_input_pipe(qw/update-index -z --index-info/);
+	($inpipe, $ctx) =
+		$repo->command_input_pipe(qw(update-index -z --index-info));
 	print($inpipe $lindex);
 	$repo->command_close_pipe($inpipe, $ctx);
+
 	my $rc = system('git', 'checkout-index', '--all', "--prefix=$ldir/");
-	exit($rc | ($rc >> 8)) if ($rc != 0);
+	exit_cleanup($tmpdir, $rc) if $rc != 0;
 
 	$ENV{GIT_INDEX_FILE} = "$tmpdir/rindex";
-	($inpipe, $ctx) = $repo->command_input_pipe(qw/update-index -z --index-info/);
+	($inpipe, $ctx) =
+		$repo->command_input_pipe(qw(update-index -z --index-info));
 	print($inpipe $rindex);
 	$repo->command_close_pipe($inpipe, $ctx);
+
 	$rc = system('git', 'checkout-index', '--all', "--prefix=$rdir/");
-	exit($rc | ($rc >> 8)) if ($rc != 0);
+	exit_cleanup($tmpdir, $rc) if $rc != 0;
 
 	# If $GIT_DIR was explicitly set just for the update/checkout
 	# commands, then it should be unset before continuing.
@@ -207,14 +254,19 @@ sub setup_dir_diff
 	for my $file (@working_tree) {
 		my $dir = dirname($file);
 		unless (-d "$rdir/$dir") {
-			mkpath("$rdir/$dir") or die $!;
+			mkpath("$rdir/$dir") or
+			exit_cleanup($tmpdir, 1);
 		}
 		if ($symlinks) {
-			symlink("$workdir/$file", "$rdir/$file") or die $!;
+			symlink("$workdir/$file", "$rdir/$file") or
+			exit_cleanup($tmpdir, 1);
 		} else {
-			copy("$workdir/$file", "$rdir/$file") or die $!;
+			copy("$workdir/$file", "$rdir/$file") or
+			exit_cleanup($tmpdir, 1);
+
 			my $mode = stat("$workdir/$file")->mode;
-			chmod($mode, "$rdir/$file") or die $!;
+			chmod($mode, "$rdir/$file") or
+			exit_cleanup($tmpdir, 1);
 		}
 	}
 
@@ -222,27 +274,35 @@ sub setup_dir_diff
 	# temporary file to both the left and right directories to show the
 	# change in the recorded SHA1 for the submodule.
 	for my $path (keys %submodule) {
+		my $ok;
 		if (defined($submodule{$path}{left})) {
-			write_to_file("$ldir/$path", "Subproject commit $submodule{$path}{left}");
+			$ok = write_to_file("$ldir/$path",
+				"Subproject commit $submodule{$path}{left}");
 		}
 		if (defined($submodule{$path}{right})) {
-			write_to_file("$rdir/$path", "Subproject commit $submodule{$path}{right}");
+			$ok = write_to_file("$rdir/$path",
+				"Subproject commit $submodule{$path}{right}");
 		}
+		exit_cleanup($tmpdir, 1) if not $ok;
 	}
 
 	# Symbolic links require special treatment. The standard "git diff"
 	# shows only the link itself, not the contents of the link target.
 	# This loop replicates that behavior.
 	for my $path (keys %symlink) {
+		my $ok;
 		if (defined($symlink{$path}{left})) {
-			write_to_file("$ldir/$path", $symlink{$path}{left});
+			$ok = write_to_file("$ldir/$path",
+					$symlink{$path}{left});
 		}
 		if (defined($symlink{$path}{right})) {
-			write_to_file("$rdir/$path", $symlink{$path}{right});
+			$ok = write_to_file("$rdir/$path",
+					$symlink{$path}{right});
 		}
+		exit_cleanup($tmpdir, 1) if not $ok;
 	}
 
-	return ($ldir, $rdir, @working_tree);
+	return ($ldir, $rdir, $tmpdir, @working_tree);
 }
 
 sub write_to_file
@@ -253,16 +313,18 @@ sub write_to_file
 	# Make sure the path to the file exists
 	my $dir = dirname($path);
 	unless (-d "$dir") {
-		mkpath("$dir") or die $!;
+		mkpath("$dir") or return 0;
 	}
 
 	# If the file already exists in that location, delete it.  This
 	# is required in the case of symbolic links.
-	unlink("$path");
+	unlink($path);
 
-	open(my $fh, '>', "$path") or die $!;
+	open(my $fh, '>', $path) or return 0;
 	print($fh $value);
 	close($fh);
+
+	return 1;
 }
 
 sub main
@@ -276,7 +338,8 @@ sub main
 		gui => undef,
 		help => undef,
 		prompt => undef,
-		symlinks => $^O ne 'MSWin32' && $^O ne 'msys',
+		symlinks => $^O ne 'cygwin' &&
+				$^O ne 'MSWin32' && $^O ne 'msys',
 		tool_help => undef,
 	);
 	GetOptions('g|gui!' => \$opts{gui},
@@ -333,21 +396,19 @@ sub main
 sub dir_diff
 {
 	my ($extcmd, $symlinks) = @_;
-
 	my $rc;
+	my $error = 0;
 	my $repo = Git->repository();
-
 	my $workdir = find_worktree($repo);
-	my ($a, $b, @worktree) = setup_dir_diff($repo, $workdir, $symlinks);
+	my ($a, $b, $tmpdir, @worktree) =
+		setup_dir_diff($repo, $workdir, $symlinks);
+
 	if (defined($extcmd)) {
 		$rc = system($extcmd, $a, $b);
 	} else {
 		$ENV{GIT_DIFFTOOL_DIRDIFF} = 'true';
 		$rc = system('git', 'difftool--helper', $a, $b);
 	}
-
-	exit($rc | ($rc >> 8)) if ($rc != 0);
-
 	# If the diff including working copy files and those
 	# files were modified during the diff, then the changes
 	# should be copied back to the working tree.
@@ -355,13 +416,32 @@ sub dir_diff
 	# external tool did not replace the original link with a file.
 	for my $file (@worktree) {
 		next if $symlinks && -l "$b/$file";
-		if (-f "$b/$file" && compare("$b/$file", "$workdir/$file")) {
-			copy("$b/$file", "$workdir/$file") or die $!;
+		next if ! -f "$b/$file";
+
+		my $diff = compare("$b/$file", "$workdir/$file");
+		if ($diff == 0) {
+			next;
+		} elsif ($diff == -1) {
+			my $errmsg = "warning: Could not compare ";
+			$errmsg += "'$b/$file' with '$workdir/$file'\n";
+			warn $errmsg;
+			$error = 1;
+		} elsif ($diff == 1) {
 			my $mode = stat("$b/$file")->mode;
-			chmod($mode, "$workdir/$file") or die $!;
+			copy("$b/$file", "$workdir/$file") or
+			exit_cleanup($tmpdir, 1);
+
+			chmod($mode, "$workdir/$file") or
+			exit_cleanup($tmpdir, 1);
 		}
 	}
-	exit(0);
+	if ($error) {
+		warn "warning: Temporary files exist in '$tmpdir'.\n";
+		warn "warning: You may want to cleanup or recover these.\n";
+		exit(1);
+	} else {
+		exit_cleanup($tmpdir, $rc);
+	}
 }
 
 sub file_diff
