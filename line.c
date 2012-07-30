@@ -127,7 +127,7 @@ static void range_set_union (struct range_set *out,
 				new = &ra[i++];
 			else
 				new = &rb[j++];
-		} else if (i < a->nr)        /* b exhausted */
+		} else if (i < a->nr)      /* b exhausted */
 			new = &ra[i++];
 		else                       /* a exhausted */
 			new = &rb[j++];
@@ -278,15 +278,6 @@ static void line_log_data_insert (struct line_log_data **list,
 	/* we fake a 1-element range_set without any allocations */
 	struct range_set rs = { 1, 1, &rg };
 	line_log_data_extend(list, path, &rs);
-}
-
-static void line_log_data_sort (struct line_log_data *list)
-{
-	struct line_log_data *p = list;
-	while (p) {
-		sort_and_merge_range_set(&p->ranges);
-		p = p->next;
-	}
 }
 
 struct collect_diff_cbdata {
