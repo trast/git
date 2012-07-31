@@ -1966,7 +1966,7 @@ static void prepare_blame_range(struct scoreboard *sb,
 				long lno,
 				long *bottom, long *top)
 {
-	if (parse_range_arg(bottomtop, nth_line_cb, sb, lno, bottom, top))
+	if (parse_range_arg(bottomtop, nth_line_cb, sb, lno, bottom, top, NULL))
 		usage(blame_usage);
 }
 
