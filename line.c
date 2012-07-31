@@ -597,7 +597,7 @@ static void fill_blob_sha1(struct commit *commit, struct line_log_data *r)
 		if (get_tree_entry(commit->object.sha1, r->spec->path,
 			sha1, &mode))
 			die("There is no path %s in the commit", r->spec->path);
-		fill_filespec(r->spec, sha1, mode);
+		fill_filespec(r->spec, sha1, 1, mode);
 		r = r->next;
 	}
 
