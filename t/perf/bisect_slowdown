@@ -1,0 +1,88 @@
+#!/bin/sh
+
+test=$1
+good=$2
+bad=$3
+
+subtest=${test#p????.}
+maintest=${test%%.*}
+
+export subtest maintest
+
+export GIT_PERF_TEST_ONLY=$test
+
+goodrev=$(git rev-parse "$good^{commit}")
+badrev=$(git rev-parse "$bad^{commit}")
+
+git_dir=$(git rev-parse --git-dir)
+perfdir=$(cd "$(dirname "$0")" && pwd)
+log="$perfdir/test-results/bisect.log"
+
+export good bad goodrev badrev perfdir log
+
+if ! test -s "$git_dir/BISECT_LOG"; then
+	# Establish initial timings for the endpoints
+	echo "## Before bisection: comparing $good (good) and $bad (bad)" >"$log"
+	GIT_PERF_AGGREGATING_LATER=t ./run "$good" "$bad" -- "$maintest"*.sh
+	./aggregate.perl "$good" "$bad" -- "$maintest"*.sh | tee -a "$log"
+
+	cd "$perfdir/../.."
+
+	echo "## Starting bisection between $good (good) and $bad (bad)" >>"$log"
+	git bisect start --no-checkout
+	git bisect good "$good"
+	git bisect bad "$bad"
+else
+	cd "$perfdir/../.."
+fi
+
+git bisect run sh -c '
+	cd "$perfdir"
+	echo "## Testing $(git log --no-walk --format="%h %s" BISECT_HEAD)" >>"$log"
+	GIT_PERF_AGGREGATING_LATER=t ./run BISECT_HEAD -- "$maintest"*.sh
+	./aggregate.perl BISECT_HEAD "$good" "$bad" -- "$maintest"*.sh | tee -a "$log"
+	tested=$(git rev-parse BISECT_HEAD)
+	perl -e '\''
+		open STDOUT, "|-", "tee", "-a", "'"$log"'" or die "failed to spawn tee: $!";
+		sub avg {
+			open my $fp, "<$_" or die "cannot open $_: $!";
+			my $s = 0;
+			my $n = 0;
+			while (<$fp>) {
+				if (/^(\d+\.\d+)/) {
+					$s += $1;
+					$n++;
+				}
+			}
+			close $fp or die "cannot close: $!";
+			return $s/$n;
+		}
+		my ($good,$bad,$test) = map { avg $_ } @ARGV;
+		if ($good == $bad) { die "good = bad?" };
+		my $ratio = ($test-$good)/($bad-$good);
+		if ($ratio < 0.25) {
+			print "# Result: GOOD!\n";
+			exit 0;
+		} elsif ($ratio > 0.75) {
+			print "# Result: BAD!\n";
+			exit 42;
+		} else {
+			print "# INCONCLUSIVE.\n";
+			print "# Please check manually, say git bisect good/bad, and restart me!\n";
+			exit 1;
+		}
+	'\'' \
+		test-results/build_"$goodrev"."$maintest"*."$subtest".times \
+		test-results/build_"$badrev"."$maintest"*."$subtest".times \
+		test-results/build_"$tested"."$maintest"*."$subtest".times
+	ret=$?
+	test $ret = 0 && exit 0
+	test $ret = 42 && exit 1
+	exit 255
+' || exit $?
+
+cd "$perfdir"
+echo "## Double-checking $(git log --no-walk --format="%h %s" bisect/bad)" >>"$log"
+GIT_PERF_AGGREGATING_LATER=t ./run bisect/bad^ bisect/bad -- "$maintest"*.sh
+git show bisect/bad
+./aggregate.perl bisect/bad^ bisect/bad -- "$maintest"*.sh | tee -a "$log"
