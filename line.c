@@ -645,6 +645,9 @@ static const char *parse_range_funcname(const char *arg, nth_line_fn_t nth_line_
 	regfree(&regexp);
 	free(xecfg);
 
+	/* compensate for 1-based numbering */
+	(*begin)++;
+
 	return term;
 }
 
