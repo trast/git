@@ -107,6 +107,10 @@ static void sort_and_merge_range_set (struct range_set *rs)
 /*
  * Union of range sets (i.e., sets of line numbers).  Used to merge
  * them when searches meet at a common ancestor.
+ *
+ * This is also where the ranges are consolidated into canonical form:
+ * overlapping and adjacent ranges are merged, and empty ranges are
+ * removed.
  */
 static void range_set_union (struct range_set *out,
 			     struct range_set *a, struct range_set *b)
@@ -132,7 +136,9 @@ static void range_set_union (struct range_set *out,
 			new = &ra[i++];
 		else                       /* a exhausted */
 			new = &rb[j++];
-		if (!o || out->ranges[o-1].end < new->start) {
+		if (new->start == new->end)
+			; /* empty range */
+		else if (!o || out->ranges[o-1].end < new->start) {
 			range_set_grow(out, 1);
 			out->ranges[o].start = new->start;
 			out->ranges[o].end = new->end;
