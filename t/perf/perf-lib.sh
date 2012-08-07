@@ -167,7 +167,7 @@ test_perf () {
 		else
 			echo "perf $test_count - $1:"
 		fi
-		for i in $(seq 0 $GIT_PERF_REPEAT_COUNT); do
+		for i in $(test_seq 0 $GIT_PERF_REPEAT_COUNT); do
 			say >&3 "running: $2"
 			if test_run_perf_ "$2"
 			then
