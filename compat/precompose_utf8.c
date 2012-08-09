@@ -67,7 +67,7 @@ void probe_utf8_pathname_composition(char *path, int len)
 
 void precompose_argv(int argc, const char **argv)
 {
-	int i = 0;
+	int i;
 	const char *oldarg;
 	char *newarg;
 	iconv_t ic_precompose;
@@ -75,11 +75,19 @@ void precompose_argv(int argc, const char **argv)
 	if (precomposed_unicode != 1)
 		return;
 
+	/* Avoid iconv_open()/iconv_close() if there is nothing to convert */
+	for (i = 0; i < argc; i++) {
+		if (has_utf8(argv[i], (size_t)-1, NULL))
+			break;
+	}
+	if (argc <= i)
+		return; /* no utf8 found */
+
 	ic_precompose = iconv_open(repo_encoding, path_encoding);
 	if (ic_precompose == (iconv_t) -1)
 		return;
 
-	while (i < argc) {
+	for (i = 0; i < argc; i++) {
 		size_t namelen;
 		oldarg = argv[i];
 		if (has_utf8(oldarg, (size_t)-1, &namelen)) {
@@ -87,7 +95,6 @@ void precompose_argv(int argc, const char **argv)
 			if (newarg)
 				argv[i] = newarg;
 		}
-		i++;
 	}
 	iconv_close(ic_precompose);
 }
@@ -106,8 +113,7 @@ PREC_DIR *precompose_utf8_opendir(const char *dirname)
 		return NULL;
 	} else {
 		int ret_errno = errno;
-		prec_dir->ic_precompose = iconv_open(repo_encoding, path_encoding);
-		/* if iconv_open() fails, die() in readdir() if needed */
+		prec_dir->ic_precompose = (iconv_t)-1;
 		errno = ret_errno;
 	}
 
@@ -136,6 +142,9 @@ struct dirent_prec_psx *precompose_utf8_readdir(PREC_DIR *prec_dir)
 		prec_dir->dirent_nfc->d_type = res->d_type;
 
 		if ((precomposed_unicode == 1) && has_utf8(res->d_name, (size_t)-1, NULL)) {
+			if (prec_dir->ic_precompose == (iconv_t)-1)
+				prec_dir->ic_precompose =
+					iconv_open(repo_encoding, path_encoding);
 			if (prec_dir->ic_precompose == (iconv_t)-1) {
 				die("iconv_open(%s,%s) failed, but needed:\n"
 						"    precomposed unicode is not supported.\n"
