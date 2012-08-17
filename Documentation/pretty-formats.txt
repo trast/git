@@ -137,6 +137,7 @@ The placeholders are:
 - '%ge': reflog identity email
 - '%gE': reflog identity email (respecting .mailmap, see linkgit:git-shortlog[1] or linkgit:git-blame[1])
 - '%gs': reflog subject
+- '%G': generation number (i.e., distance of path to farthest root ancestor)
 - '%Cred': switch color to red
 - '%Cgreen': switch color to green
 - '%Cblue': switch color to blue

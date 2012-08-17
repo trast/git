@@ -8,6 +8,7 @@
 #include "notes.h"
 #include "gpg-interface.h"
 #include "mergesort.h"
+#include "metadata-cache.h"
 
 int save_commit_buffer = 1;
 
@@ -247,6 +248,42 @@ int unregister_shallow(const unsigned char *sha1)
 				* (commit_graft_nr - pos - 1));
 	commit_graft_nr--;
 	return 0;
+}
+
+static void commit_graft_checksum(git_SHA_CTX *ctx)
+{
+	int i;
+
+	prepare_commit_graft();
+
+	for (i = 0; i < commit_graft_nr; i++) {
+		const struct commit_graft *c = commit_graft[i];
+		git_SHA1_Update(ctx, c->sha1, 20);
+		if (c->nr_parent < 0)
+			git_SHA1_Update(ctx, "shallow", 7);
+		else {
+			uint32_t v = htonl(c->nr_parent);
+			int j;
+			git_SHA1_Update(ctx, &v, sizeof(v));
+			for (j = 0; j < c->nr_parent; j++)
+				git_SHA1_Update(ctx, c->parent[j], 20);
+		}
+	}
+}
+
+void commit_graph_checksum(unsigned char out[20])
+{
+	git_SHA_CTX ctx;
+
+	git_SHA1_Init(&ctx);
+
+	git_SHA1_Update(&ctx, "grafts", 6);
+	commit_graft_checksum(&ctx);
+
+	git_SHA1_Update(&ctx, "replace", 7);
+	replace_objects_checksum(&ctx);
+
+	git_SHA1_Final(out, &ctx);
 }
 
 int parse_commit_buffer(struct commit *item, const void *buffer, unsigned long size)
@@ -1225,4 +1262,36 @@ struct commit_list **commit_list_append(struct commit *commit,
 	*next = new;
 	new->next = NULL;
 	return &new->next;
+}
+
+static unsigned long commit_generation_recurse(struct commit *c)
+{
+	struct commit_list *p;
+	uint32_t r;
+
+	if (generations_cache_get(&c->object, &r))
+		return r;
+
+	if (parse_commit(c) < 0)
+		die("unable to parse commit: %s", sha1_to_hex(c->object.sha1));
+
+	if (!c->parents)
+		return 0;
+
+	r = 0;
+	for (p = c->parents; p; p = p->next) {
+		unsigned long pgen = commit_generation_recurse(p->item);
+		if (pgen > r)
+			r = pgen;
+	}
+	r++;
+
+	generations_cache_set(&c->object, r);
+	return r;
+}
+
+unsigned long commit_generation(const struct commit *commit)
+{
+	/* drop const because we may call parse_commit */
+	return commit_generation_recurse((struct commit *)commit);
 }

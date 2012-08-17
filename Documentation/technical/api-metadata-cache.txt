@@ -1,0 +1,67 @@
+metadata cache API
+==================
+
+The metadata cache API provides simple-to-use, persistent key/value
+storage. It is built on the link:api-map.html[map API], so keys and
+values can have any serializable type.
+
+Caches are statically allocated, and no explicit initialization is
+required.  Callers can simply call the "get" and "set" functions for a
+given cache.  At program exit, any new entries in the cache are flushed
+to disk.
+
+
+Defining a New Cache
+--------------------
+
+You need to provide three pieces of information to define a new cache:
+
+name::
+	This name will be used both as part of the C identifier and as
+	part of the filename under which the cache is stored. Restrict
+	the characters used to alphanumerics and underscore.
+
+map::
+	The type of map (declared by `DECLARE_MAP`) that this cache will
+	store.
+
+validity::
+	A function that will generate a 20-byte "validity token"
+	representing the conditions under which the cache is valid.
+	For example, a cache that depended on the structure of the
+	history graph would be valid only under a given set of grafts
+	and replace refs. That set could be stirred into a sha1 and used
+	as a validity token.
+
+You must declare the cache in metadata-cache.h using
+`DECLARE_METADATA_CACHE`, and then implement it in metadata-cache.c
+using `IMPLEMENT_METADATA_CACHE`.
+
+
+Using a Cache
+-------------
+
+Interaction with a cache consists entirely of getting and setting
+values. No initialization or cleanup is required. The get and set
+functions mirror their "map" counterparts; see the
+link:api-map.html[map API] for details.
+
+
+File Format
+-----------
+
+Cache files are stored in the $GIT_DIR/cache directory. Each cache gets
+its own directory, named after the `name` parameter in the cache
+definition. Within each directory is a set of files, one cache per file,
+named after their validity tokens. Caches for multiple sets of
+conditions can simultaneously exist, and git will use whichever is
+appropriate.
+
+The files themselves consist of an 8-byte header. The first four bytes
+are the magic sequence "MTAC" (for "MeTA Cache"), followed by a 4-byte
+version number, in network byte order. This document describes version
+1.
+
+The rest of the file consists of the persistent map data. This is a
+compact, sorted list of keys and values; see the link:api-map.html[map
+API] for details.

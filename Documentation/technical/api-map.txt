@@ -1,0 +1,292 @@
+map API
+=======
+
+The map API is a system for efficiently mapping keys to values in memory. Items
+are stored in a hash table for fast lookup; storage efficiency is achieved
+through macro-based code generation, which lets the compiler store values
+compactly in memory.
+
+Due to the code generation, there are two different facets of this API: macros
+to build new types of mappings (i.e., generate new function and struct
+definitions), and generated functions to store and retrieve values from a
+particular mapping.
+
+
+Related APIs
+------------
+
+The hash API provides a similar key/value store. However, it does not deal with
+hash collisions itself, leaving the caller to handle bucket management (but
+this is a feature if you are interested in using the collisions as part of an
+algorithm).  Furthermore, it can store only void pointers, making storage of
+small values inefficient and cumbersome.
+
+The decorate API provides a similar interface to map, but is restricted to
+using "struct object" as the key, and a void pointer as the value.
+
+
+Persistent Maps
+---------------
+
+Maps come in two flavors: persistent and in-core. In-core maps are
+represented by a hash table, and can contain any C type. Persistent maps
+are backed by flat storage, such as an mmap'd file, and store values
+between program runs. Key and value types must be serializable to
+fixed-width byte values.
+
+The flat storage is a sorted array of key/value pairs, with no
+delimiters between pairs or between elements of a pair.  Persistent maps
+uses an in-core map for newly-added values, and then merge the new
+values into the flat storage on request.
+
+
+Defining New Map Types
+----------------------
+
+A map type is uniquely defined by the pair of its key and value types. To
+define a new type, you must use the `DECLARE_MAP` macro in `map.h`, and the
+`IMPLEMENT_MAP` macro in `map.c`. Their usage is described below:
+
+`DECLARE_MAP`::
+
+	Declare a new type of map, including the struct definition and
+	declarations of access functions. The `name` parameter should describe
+	the types (e.g., `object_uint32` to map objects to 32-bit integers).
+	The `ktype` parameter specifies the C type of the key (e.g.,
+	`struct object *`) and the `vtype` parameter specifies the C type of
+	the value (e.g., `uint32_t`).
+
+`IMPLEMENT_MAP`::
+
+	Create function definitions for a map type. The `name` parameter should
+	match one given to `DECLARE_MAP`. The `equal_fun` parameter should
+	specify a function that, when given two items of type `ktype`, will
+	return a non-zero value if they are equal.  The `hash_fun` parameter
+	should specify a function that will convert an object of type `ktype`
+	into an integer hash value.
+
+To define a persistent map, use these macros instead:
+
+`DECLARE_MAP_PERSIST`::
+
+	Declare a new persistent map. The `name` parameter must match a
+	map declared already with `DECLARE_MAP`.
+
+`IMPLEMENT_MAP_PERSIST`::
+
+	Create function definitions for a persistent map. The `name`
+	parameter must match one given to `DECLARE_MAP_PERSIST`.  The
+	`ksize` and `vsize` parameters indicate the size, in bytes, of
+	serialized keys and values.
++
+	The `k_to_disk` and `v_to_disk` parameters specify functions to
+	convert keys and values to their serialized formats; they take a
+	key (or value), and a pointer to memory of at least `ksize` (or
+	`vsize`) bytes to write into. The `disk_to_v` parameter
+	specifies a function to convert a pointer to `vsize` bytes of
+	serialized value into a `vtype`.
++
+	The `disk_lookup_fun` parameter should specify a function for
+	performing a search of the sorted flat disk array (it is given
+	the array, the number of elements, the size of the key and
+	value, and the key to lookup).
+
+Several convenience functions are provided to fill in macro parameters:
+
+`hash_obj`::
+
+	Suitable for `hash_fun` when the key type is `struct object *`.
+
+`obj_equal`::
+
+	Suitable for `equal_fun` when the key type is `struct object *`.
+
+`obj_to_disk`::
+
+	Suitable for `k_to_disk` when the key type is `struct object *`.
+
+`uint32_to_disk`::
+
+	Suitable for `k_to_disk` or `v_to_disk` when the type is
+	`uint32_t`. Integers are serialized in network byte order for
+	portability.
+
+`disk_to_uint32`::
+
+	Suitable for `disk_to_v` when the value type is `uint32_t`.
+	Integers are converted back to host byte order.
+
+`disk_lookup_sha1`::
+
+	Suitable for disk_lookup_fun when the serialized keys are sha1
+	hashes.
+
+
+Data Structures
+---------------
+
+Each defined map type will have its own structure (e.g., `map_object_uint32`).
+
+`struct map_NAME`::
+
+	A single map object. This struct should be initialized to all-zeroes.
+	The `nr` field specifies the number of items stored in the map. The
+	`size` field specifies the number of hash buckets allocated. The `hash`
+	field stores the actual data. Callers should never need to look at
+	these fields unless they are enumerating all elements of the map (see
+	the example below).
+
+`struct map_entry_NAME`::
+
+	A single entry in the hash, which may or may not contain a value. If
+	the `used` field is false, the `key` and `value` fields should not be
+	examined at all. Otherwise, the `key` and `value` fields represent a
+	single mapped pair.  You should never need to use this type directly,
+	unless you are enumerating all elements of a map.
+
+`struct map_persist_NAME`::
+
+	A persistent map. This struct should be initialized to
+	all-zeroes. The `map` field contains a complete in-core map. The
+	`disk_entries` and `disk_nr` fields specify the flat storage.
+	These should not be set directly, but rather through the
+	`attach` function.
+
+
+Functions
+---------
+
+Each defined map type will have its own set of access function (e.g.,
+`map_get_object_uint32`).
+
+`map_get_NAME(struct map_NAME *, const ktype key, vtype *value)`::
+
+	Retrieve the value corresponding to `key`, returning it via the pointer
+	`value`. Returns 1 if an item was found, zero otherwise (in which case
+	`value` is unchanged).
+
+`map_set_NAME(struct map_NAME *, const ktype key, vtype value, vtype *old)`::
+
+	Insert a mapping from `key` to `value`. If a mapping for `key` already
+	existed, the previous value is copied into `old` (if it is non-NULL)
+	and the function returns 1. Otherwise, the function returns 0.
+
+`map_persist_get_NAME(struct map_persist_NAME *, const ktype key, vtype *value)`::
+
+	Same as `map_get_NAME`, but for a persistent map.
+
+`map_persist_set_NAME(struct map_persist_NAME *, const ktype key, vtype value)`::
+
+	Same as `map_set_name`, but for a persistent map. It also does
+	not provide the "old" value for the key.
+
+`map_persist_attach_NAME`::
+
+	Attach storage from `buf` of size `len` bytes as the flat
+	backing store for the map. The map does not copy the storage;
+	the caller is responsible for making sure it stays around as
+	long as the map does.
+
+`map_persist_flush_NAME`::
+
+	Merge in-core entries with those found in the backing store, and
+	write the result to `fd`. Returns 0 for success, -1 for failure.
+
+
+Examples
+--------
+
+Create a new mapping type of objects to integers:
+
+-------------------------------------------------------------------
+/* in map.h */
+DECLARE_MAP(object_int, struct object *, int)
+
+/* in map.c */
+IMPLEMENT_MAP(object_int, struct object *, int, obj_equal, hash_obj)
+-------------------------------------------------------------------
+
+Store and retrieve integers by object key:
+
+-------------------------------------------------------------------
+static struct map_object_int foos;
+
+void store_foo(const struct commit *c, int foo)
+{
+	int old;
+	if (map_set_object_uint32(&foos, &c->object, foo, &old))
+		printf("old value was %d\n", old);
+}
+
+void print_foo(const struct commit *c)
+{
+	int v;
+
+	if (map_get_object_int(&foos, &c->object, &v))
+		printf("foo: %d\n", v);
+	else
+		printf("no such foo\n");
+}
+-------------------------------------------------------------------
+
+Iterate over all map entries:
+
+-------------------------------------------------------------------
+void dump_foos(void)
+{
+	int i;
+
+	printf("there are %u foos:\n", foos.nr);
+
+	for (i = 0; i < foos.size; i++) {
+		struct map_entry_object_int *e = foos.hash + i;
+
+		if (!e->used)
+			continue;
+
+		printf("%s -> %d\n", sha1_to_hex(e->key->sha1), e->value);
+	}
+}
+-------------------------------------------------------------------
+
+Open and close a disk-backed persistent map of objects to 32-bit
+integers:
+
+-------------------------------------------------------------------
+static int fd;
+static const unsigned char *buf;
+static unsigned len;
+static struct map_persist_object_uint32 map;
+
+void open_map(const char *path)
+{
+	struct stat sb;
+	const unsigned char *p;
+
+	fd = open(path, O_RDONLY);
+	/* it's ok not to attach any backing store at all */
+	if (fd < 0)
+		return;
+
+	fstat(fd, &sb);
+	len = sb.st_size;
+	buf = xmmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+
+	map_persist_attach_object_uint32(&map, buf, len);
+}
+
+/* other functions call "get" and "set" */
+
+void close_map(const char *path, const char *tmp)
+{
+	int tmpfd;
+
+	tmpfd = open(tmp, O_RDONLY);
+	if (map_persist_flush_object_uint32(&map, tmpfd) < 0)
+		die_errno("unable to write new map");
+	close(tmpfd);
+	rename(tmp, path);
+
+	munmap(buf, len);
+	close(fd);
+}
