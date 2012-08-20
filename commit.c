@@ -509,7 +509,8 @@ void commit_queue_push(struct commit_queue *q, struct commit *commit)
 	q->nr++;
 	ALLOC_GROW(q->commits, q->nr, q->alloc);
 	q->commits[q->nr-1] = commit;
-	commit_queue_sift_up(q, q->nr-1);
+	if (q->cmp)
+		commit_queue_sift_up(q, q->nr-1);
 }
 
 struct commit *commit_queue_pop(struct commit_queue *q)
@@ -518,6 +519,9 @@ struct commit *commit_queue_pop(struct commit_queue *q)
 
 	if (!q->nr)
 		return NULL;
+
+	if (!q->cmp)
+		return q->commits[--q->nr];
 
 	ret = q->commits[0];
 	q->commits[0] = q->commits[--q->nr];

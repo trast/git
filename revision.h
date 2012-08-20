@@ -45,6 +45,7 @@ struct rev_info {
 	/* Starting list */
 	struct commit_list *commits;
 	struct object_array pending;
+	struct commit_queue queue;
 
 	/* Parents of shown commits */
 	struct object_array boundary_commits;

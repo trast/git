@@ -2091,22 +2091,28 @@ int prepare_revision_walk(struct rev_info *revs)
 	int nr = revs->pending.nr;
 	struct object_array_entry *e, *list;
 	struct commit_list **next = &revs->commits;
+	struct commit_list *entry;
 
 	e = list = revs->pending.objects;
 	revs->pending.nr = 0;
 	revs->pending.alloc = 0;
 	revs->pending.objects = NULL;
+	commit_queue_init(&revs->queue, revs->lifo ? NULL : commit_compare_by_date);
 	while (--nr >= 0) {
 		struct commit *commit = handle_commit(revs, e->item, e->name);
 		if (commit) {
 			if (!(commit->object.flags & SEEN)) {
 				commit->object.flags |= SEEN;
-				next = commit_list_append(commit, next);
+				commit_queue_push(&revs->queue, commit);
 			}
 		}
 		e++;
 	}
-	commit_list_sort_by_date(&revs->commits);
+
+	if (revs->lifo && revs->queue.nr)
+		qsort(revs->queue.commits, revs->queue.nr, sizeof(struct commit *),
+		      commit_compare_by_date);
+
 	if (!revs->leak_pending)
 		free(list);
 

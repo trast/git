@@ -66,6 +66,9 @@ void free_commit_list(struct commit_list *list);
  * commit_queue implements a binary heap.  It always keep the largest
  * commit according to 'cmp' at the top, and provides for O(log n)
  * removal of the minimum and insertion.
+ *
+ * As a special case, for cmp==NULL it implements a stack.  This
+ * simplifies using it in the revision walker.
  */
 
 typedef int (*commit_cmp_fn)(struct commit *, struct commit *);
