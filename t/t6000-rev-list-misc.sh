@@ -48,4 +48,43 @@ test_expect_success 'rev-list --objects with pathspecs and copied files' '
 	! grep one output
 '
 
+make_some_commits () {
+	msg=$1
+	for i in $(seq 1 8); do
+		echo $i >foo &&
+		git add foo &&
+		test_tick &&
+		git commit -m"$i $msg"
+	done
+}
+
+test_expect_success 'set up out-of-order timestamps' '
+	test_commit base &&
+	git checkout -b normal &&
+	make_some_commits normal &&
+	git checkout -b past base &&
+	test_tick=$(($test_tick - 86400)) &&
+	make_some_commits past
+'
+
+test_expect_success 'normal..past' '
+	: >expected &&
+	for i in 8 7 6 5 4 3 2 1; do
+		echo "$i past" >>expected
+	done &&
+	git rev-list --pretty="%s" normal..past >actual &&
+	grep -v commit actual >filtered &&
+	test_cmp expected filtered
+'
+
+test_expect_failure 'past..normal' '
+	: >expected &&
+	for i in 8 7 6 5 4 3 2 1; do
+		echo "$i normal" >>expected
+	done &&
+	git rev-list --pretty=%s past..normal >actual &&
+	grep -v commit actual >filtered &&
+	test_cmp expected filtered
+'
+
 test_done
