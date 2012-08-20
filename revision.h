@@ -179,10 +179,6 @@ struct rev_info {
 #define REV_TREE_OLD		2	/* Only files removed */
 #define REV_TREE_DIFFERENT	3	/* Mixed changes */
 
-/* revision.c */
-typedef void (*show_early_output_fn_t)(struct rev_info *, struct commit_list *);
-extern volatile show_early_output_fn_t show_early_output;
-
 struct setup_revision_opt {
 	const char *def;
 	void (*tweak)(struct rev_info *, struct setup_revision_opt *);

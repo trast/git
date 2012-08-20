@@ -15,8 +15,6 @@
 #include "string-list.h"
 #include "line.h"
 
-volatile show_early_output_fn_t show_early_output;
-
 char *path_name(const struct name_path *path, const char *name)
 {
 	const struct name_path *p;
@@ -850,7 +848,6 @@ static int limit_list(struct rev_info *revs)
 		struct commit_list *entry = list;
 		struct commit *commit = list->item;
 		struct object *obj = &commit->object;
-		show_early_output_fn_t show;
 
 		list = list->next;
 		free(entry);
@@ -875,13 +872,6 @@ static int limit_list(struct rev_info *revs)
 			continue;
 		date = commit->date;
 		p = &commit_list_insert(commit, p)->next;
-
-		show = show_early_output;
-		if (!show)
-			continue;
-
-		show(revs, newlist);
-		show_early_output = NULL;
 	}
 	if (revs->cherry_pick || revs->cherry_mark)
 		cherry_pick_list(newlist, revs);
@@ -1382,15 +1372,7 @@ static int handle_revision_opt(struct rev_info *revs, int argc, const char **arg
 		revs->lifo = 0;
 		revs->topo_order = 1;
 	} else if (!prefixcmp(arg, "--early-output")) {
-		int count = 100;
-		switch (arg[14]) {
-		case '=':
-			count = atoi(arg+15);
-			/* Fallthrough */
-		case 0:
-			revs->topo_order = 1;
-		       revs->early_output = count;
-		}
+		revs->early_output = 1;
 	} else if (!strcmp(arg, "--parents")) {
 		revs->rewrite_parents = 1;
 		revs->print_parents = 1;
