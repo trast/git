@@ -455,6 +455,99 @@ void commit_list_sort_by_date(struct commit_list **list)
 				commit_list_compare_by_date);
 }
 
+void commit_queue_init(struct commit_queue *q, commit_cmp_fn cmp)
+{
+	memset(q, 0, sizeof(struct commit_queue));
+	q->cmp = cmp;
+}
+
+void free_commit_queue(struct commit_queue *q)
+{
+	free(q->commits);
+}
+
+static void swap_commits(struct commit **a, struct commit **b)
+{
+	struct commit *tmp = *a;
+	*a = *b;
+	*b = tmp;
+}
+
+static void commit_queue_sift_up(struct commit_queue *q, int i)
+{
+	while (i) {
+		int parent = (i+1)/2 - 1;
+		if (q->cmp(q->commits[parent], q->commits[i]) > 0)
+			return;
+		swap_commits(&q->commits[parent], &q->commits[i]);
+		i = parent;
+	}
+}
+
+static void commit_queue_sift_down(struct commit_queue *q)
+{
+	int i = 0;
+	while (1) {
+		int left = 2*i + 1;
+		int right = 2*i + 2;
+		int max = i;
+		if (left < q->nr
+		    && q->cmp(q->commits[max], q->commits[left]) < 0)
+			max = left;
+		if (right < q->nr
+		    && q->cmp(q->commits[max], q->commits[right]) < 0)
+			max = right;
+		if (max == i)
+			return;
+		swap_commits(&q->commits[max], &q->commits[i]);
+		i = max;
+	}
+}
+
+void commit_queue_push(struct commit_queue *q, struct commit *commit)
+{
+	q->nr++;
+	ALLOC_GROW(q->commits, q->nr, q->alloc);
+	q->commits[q->nr-1] = commit;
+	commit_queue_sift_up(q, q->nr-1);
+}
+
+struct commit *commit_queue_pop(struct commit_queue *q)
+{
+	struct commit *ret;
+
+	if (!q->nr)
+		return NULL;
+
+	ret = q->commits[0];
+	q->commits[0] = q->commits[--q->nr];
+	commit_queue_sift_down(q);
+
+	return ret;
+}
+
+int commit_compare_by_date(struct commit *a, struct commit *b)
+{
+	if (a->date > b->date)
+		return 1;
+	if (a->date < b->date)
+		return -1;
+	return 0;
+}
+
+int commit_compare_by_generation(struct commit *a, struct commit *b)
+{
+	unsigned long ga = commit_generation(a);
+	unsigned long gb = commit_generation(b);
+
+	if (ga > gb)
+		return 1;
+	if (ga < gb)
+		return -1;
+
+	return 0;
+}
+
 struct commit *pop_most_recent_commit(struct commit_list **list,
 				      unsigned int mark)
 {

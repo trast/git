@@ -62,6 +62,29 @@ void commit_list_sort_by_date(struct commit_list **list);
 
 void free_commit_list(struct commit_list *list);
 
+/*
+ * commit_queue implements a binary heap.  It always keep the largest
+ * commit according to 'cmp' at the top, and provides for O(log n)
+ * removal of the minimum and insertion.
+ */
+
+typedef int (*commit_cmp_fn)(struct commit *, struct commit *);
+int commit_compare_by_date(struct commit *a, struct commit *b);
+int commit_compare_by_generation(struct commit *a, struct commit *b);
+
+struct commit_queue {
+	unsigned int nr;
+	unsigned int alloc;
+	struct commit **commits;
+	commit_cmp_fn cmp;
+};
+
+void commit_queue_init(struct commit_queue *q, commit_cmp_fn cmp);
+void free_commit_queue(struct commit_queue *q);
+
+void commit_queue_push(struct commit_queue *q, struct commit *commit);
+struct commit *commit_queue_pop(struct commit_queue *q);
+
 /* Commit formats */
 enum cmit_fmt {
 	CMIT_FMT_RAW,
