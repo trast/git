@@ -604,6 +604,76 @@ static int add_parents_to_list(struct rev_info *revs, struct commit *commit,
 	return 0;
 }
 
+static int add_parents_to_queue(struct rev_info *revs, struct commit *commit,
+		    struct commit_queue *queue)
+{
+	struct commit_list *parent = commit->parents;
+	unsigned left_flag;
+
+	if (commit->object.flags & ADDED)
+		return 0;
+	commit->object.flags |= ADDED;
+
+	/*
+	 * If the commit is uninteresting, don't try to
+	 * prune parents - we want the maximal uninteresting
+	 * set.
+	 *
+	 * Normally we haven't parsed the parent
+	 * yet, so we won't have a parent of a parent
+	 * here. However, it may turn out that we've
+	 * reached this commit some other way (where it
+	 * wasn't uninteresting), in which case we need
+	 * to mark its parents recursively too..
+	 */
+	if (commit->object.flags & UNINTERESTING) {
+		while (parent) {
+			struct commit *p = parent->item;
+			parent = parent->next;
+			if (p)
+				p->object.flags |= UNINTERESTING;
+			if (parse_commit(p) < 0)
+				continue;
+			if (p->parents)
+				mark_parents_uninteresting(p);
+			if (p->object.flags & SEEN)
+				continue;
+			p->object.flags |= SEEN;
+			commit_queue_push(queue, p);
+		}
+		return 0;
+	}
+
+	/*
+	 * Ok, the commit wasn't uninteresting. Try to
+	 * simplify the commit history and find the parent
+	 * that has no differences in the path set if one exists.
+	 */
+	try_to_simplify_commit(revs, commit);
+
+	if (revs->no_walk)
+		return 0;
+
+	left_flag = (commit->object.flags & SYMMETRIC_LEFT);
+
+	for (parent = commit->parents; parent; parent = parent->next) {
+		struct commit *p = parent->item;
+
+		if (parse_commit(p) < 0)
+			return -1;
+		if (revs->show_source && !p->util)
+			p->util = commit->util;
+		p->object.flags |= left_flag;
+		if (!(p->object.flags & SEEN)) {
+			p->object.flags |= SEEN;
+			commit_queue_push(queue, p);
+		}
+		if (revs->first_parent_only)
+			break;
+	}
+	return 0;
+}
+
 static void cherry_pick_list(struct commit_list *list, struct rev_info *revs)
 {
 	struct commit_list *p;
@@ -2239,15 +2309,18 @@ enum commit_action simplify_commit(struct rev_info *revs, struct commit *commit)
 
 static struct commit *get_revision_1(struct rev_info *revs)
 {
-	if (!revs->commits)
-		return NULL;
-
-	do {
+	if (revs->commits) {
 		struct commit_list *entry = revs->commits;
 		struct commit *commit = entry->item;
-
 		revs->commits = entry->next;
 		free(entry);
+		return commit;
+	}
+
+	while (1) {
+		struct commit *commit = commit_queue_pop(&revs->queue);
+		if (!commit)
+			return NULL;
 
 		if (revs->reflog_info) {
 			fake_reflog_parent(revs->reflog_info, commit);
@@ -2263,7 +2336,7 @@ static struct commit *get_revision_1(struct rev_info *revs)
 			if (revs->max_age != -1 &&
 			    (commit->date < revs->max_age))
 				continue;
-			if (add_parents_to_list(revs, commit, &revs->commits, NULL) < 0)
+			if (add_parents_to_queue(revs, commit, &revs->queue) < 0)
 				die("Failed to traverse parents of commit %s",
 				    sha1_to_hex(commit->object.sha1));
 		}
@@ -2277,7 +2350,7 @@ static struct commit *get_revision_1(struct rev_info *revs)
 		default:
 			return commit;
 		}
-	} while (revs->commits);
+	}
 	return NULL;
 }
 
