@@ -428,6 +428,21 @@ struct commit_list * commit_list_insert_by_date(struct commit *item, struct comm
 	return commit_list_insert(item, pp);
 }
 
+struct commit_list * commit_list_insert_by_generation(struct commit *item, struct commit_list **list)
+{
+	struct commit_list **pp = list;
+	struct commit_list *p;
+	unsigned long item_generation = commit_generation(item);
+
+	while ((p = *pp) != NULL) {
+		if (commit_generation(p->item) < item_generation) {
+			break;
+		}
+		pp = &p->next;
+	}
+	return commit_list_insert(item, pp);
+}
+
 static int commit_list_compare_by_date(const void *a, const void *b)
 {
 	unsigned long a_date = ((const struct commit_list *)a)->item->date;

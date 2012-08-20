@@ -15,7 +15,8 @@
 #define ADDED		(1u<<7)	/* Parents already parsed and added? */
 #define SYMMETRIC_LEFT	(1u<<8)
 #define PATCHSAME	(1u<<9)
-#define ALL_REV_FLAGS	((1u<<10)-1)
+#define TOPO            (1u<<10)
+#define ALL_REV_FLAGS	((1u<<11)-1)
 
 #define DECORATE_SHORT_REFS	1
 #define DECORATE_FULL_REFS	2
@@ -58,6 +59,9 @@ struct rev_info {
 	struct pathspec prune_data;
 	unsigned int	early_output:1,
 			ignore_missing:1;
+
+	/* Used by streaming topo-sort */
+	struct commit_list *unknown;
 
 	/* Traversal flags */
 	unsigned int	dense:1,

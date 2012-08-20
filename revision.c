@@ -571,7 +571,10 @@ static int add_parents_to_list(struct rev_info *revs, struct commit *commit,
 			if (p->object.flags & SEEN)
 				continue;
 			p->object.flags |= SEEN;
-			commit_list_insert_by_date_cached(p, list, cached_base, cache_ptr);
+			if (revs->lifo)
+				commit_list_insert(p, list);
+			else
+				commit_list_insert_by_date_cached(p, list, cached_base, cache_ptr);
 		}
 		return 0;
 	}
@@ -598,7 +601,10 @@ static int add_parents_to_list(struct rev_info *revs, struct commit *commit,
 		p->object.flags |= left_flag;
 		if (!(p->object.flags & SEEN)) {
 			p->object.flags |= SEEN;
-			commit_list_insert_by_date_cached(p, list, cached_base, cache_ptr);
+			if (revs->lifo)
+				commit_list_insert(p, list);
+			else
+				commit_list_insert_by_date_cached(p, list, cached_base, cache_ptr);
 		}
 		if (revs->first_parent_only)
 			break;
@@ -1850,9 +1856,6 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 	    DIFF_OPT_TST(&revs->diffopt, FOLLOW_RENAMES))
 		revs->diff = 1;
 
-	if (revs->topo_order)
-		revs->limited = 1;
-
 	if (revs->prune_data.nr) {
 		diff_tree_setup_paths(revs->prune_data.raw, &revs->pruning);
 		/* Can't prune commits with rename following: the paths change.. */
@@ -2101,7 +2104,117 @@ static void set_children(struct rev_info *revs)
 
 void reset_revision_walk(void)
 {
-	clear_object_flags(SEEN | ADDED | SHOWN);
+	clear_object_flags(SEEN | ADDED | SHOWN | TOPO);
+}
+
+static void topo_sort_discover_parents(struct rev_info *revs,
+				       struct commit *commit)
+{
+	struct commit_list *pp;
+	fprintf(stderr, "discovering parents: %s\n",
+		sha1_to_hex(commit->object.sha1));
+	for (pp = commit->parents; pp; pp = pp->next) {
+		struct commit *parent = pp->item;
+		fprintf(stderr, "\t%s (%d) %d\n",
+			sha1_to_hex(parent->object.sha1),
+			parent->indegree+1,
+			parent->object.flags & TOPO);
+		if (!(parent->object.flags & TOPO)) {
+			parse_commit(parent);
+			commit_list_insert_by_generation(parent, &revs->unknown);
+			parent->object.flags |= TOPO;
+		}
+		parent->indegree++;
+	}
+}
+
+static void topo_sort_prepare(struct rev_info *revs)
+{
+	struct commit_list *entry;
+
+	revs->unknown = NULL;
+	if (!revs->lifo)
+		commit_list_sort_by_date(&revs->commits);
+
+	for (entry = revs->commits; entry; entry = entry->next) {
+		struct commit *commit = entry->item;
+		commit->object.flags |= TOPO;
+		topo_sort_discover_parents(revs, commit);
+	}
+}
+
+static int topo_sort_vet_source(struct rev_info *revs,
+				struct commit *commit)
+{
+	unsigned long g = commit_generation(commit);
+
+	if (commit->indegree > 0)
+		return 0;
+
+	fprintf(stderr, "vetting: %s %lu\n",
+		sha1_to_hex(commit->object.sha1), g);
+
+	while (revs->unknown && g <= commit_generation(revs->unknown->item)) {
+		struct commit_list *entry = revs->unknown;
+		revs->unknown = entry->next;
+		fprintf(stderr, "checking against: %s %lu\n",
+			sha1_to_hex(entry->item->object.sha1),
+			commit_generation(entry->item));
+		topo_sort_discover_parents(revs, entry->item);
+		free(entry);
+	}
+
+	return commit->indegree == 0;
+}
+
+static struct commit *topo_sort_get_next(struct rev_info *revs)
+{
+	struct commit_list *entry;
+	struct commit_list **prev = &revs->commits;
+	struct commit *commit;
+	struct commit_list *pp;
+
+	fprintf(stderr, "commits:\n");
+	for (entry = revs->commits; entry; entry = entry->next)
+		fprintf(stderr, "\t%s (%d) %lu %d\n", sha1_to_hex(entry->item->object.sha1),
+			entry->item->indegree,
+			commit_generation(entry->item),
+			entry->item->object.flags & TOPO);
+	fprintf(stderr, "unknown:\n");
+	for (entry = revs->unknown; entry; entry = entry->next)
+		fprintf(stderr, "\t%s (%d) %lu %d\n", sha1_to_hex(entry->item->object.sha1),
+			entry->item->indegree,
+			commit_generation(entry->item),
+			entry->item->object.flags & TOPO);
+
+	while ((entry = revs->commits)) {
+		commit = entry->item;
+		revs->commits = entry->next;
+		free(entry);
+		if (topo_sort_vet_source(revs, commit))
+			break;
+		commit->object.flags &= ~(ADDED|SEEN);
+	}
+
+	if (!entry) {
+		/* fprintf(stderr, "commits:\n"); */
+		/* for (entry = revs->commits; entry; entry = entry->next) */
+		/* 	fprintf(stderr, "\t%s (%d)\n", sha1_to_hex(entry->item->object.sha1), */
+		/* 		entry->item->indegree); */
+		/* fprintf(stderr, "unknown:\n"); */
+		/* for (entry = revs->unknown; entry; entry = entry->next) */
+		/* 	fprintf(stderr, "\t%s (%d)\n", sha1_to_hex(entry->item->object.sha1), */
+		/* 		entry->item->indegree); */
+		die("BUG: no commits can be emitted\n");
+	}
+
+	for (pp = commit->parents; pp; pp = pp->next) {
+		struct commit *parent = pp->item;
+		assert(parent->indegree > 0);
+		parent->indegree--;
+	}
+
+	return commit;
 }
 
 int prepare_revision_walk(struct rev_info *revs)
@@ -2134,7 +2247,7 @@ int prepare_revision_walk(struct rev_info *revs)
 		if (limit_list(revs) < 0)
 			return -1;
 	if (revs->topo_order)
-		sort_in_topological_order(&revs->commits, revs->lifo);
+		topo_sort_prepare(revs);
 	if (revs->line_level_traverse)
 		line_log_filter(revs);
 	if (revs->simplify_merges)
@@ -2256,10 +2369,15 @@ static struct commit *get_revision_1(struct rev_info *revs)
 
 	do {
 		struct commit_list *entry = revs->commits;
-		struct commit *commit = entry->item;
+		struct commit *commit;
 
-		revs->commits = entry->next;
-		free(entry);
+		if (revs->topo_order) {
+			commit = topo_sort_get_next(revs);
+		} else {
+			commit = entry->item;
+			revs->commits = entry->next;
+			free(entry);
+		}
 
 		if (revs->reflog_info) {
 			fake_reflog_parent(revs->reflog_info, commit);
