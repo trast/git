@@ -10,6 +10,18 @@ test_perf 'rev-list --all' '
 	git rev-list --all >/dev/null
 '
 
+test_perf 'rev-list -50 --all' '
+	git rev-list -50 --all >/dev/null
+'
+
+test_perf 'rev-list --topo-order --all' '
+	git rev-list --topo-order --all >/dev/null
+'
+
+test_perf 'rev-list --topo-order -50 --all' '
+	git rev-list --topo-order -50 --all >/dev/null
+'
+
 test_perf 'rev-list --all --objects' '
 	git rev-list --all --objects >/dev/null
 '
