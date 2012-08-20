@@ -317,13 +317,11 @@ static struct commit *handle_commit(struct rev_info *revs, struct object *object
 	die("%s is unknown object", name);
 }
 
-static int everybody_uninteresting(struct commit_list *orig)
+static int everybody_uninteresting(struct commit_queue *q)
 {
-	struct commit_list *list = orig;
-	while (list) {
-		struct commit *commit = list->item;
-		list = list->next;
-		if (commit->object.flags & UNINTERESTING)
+	int i;
+	for (i = 0; i < q->nr; i++) {
+		if (q->commits[i]->object.flags & UNINTERESTING)
 			continue;
 		return 0;
 	}
@@ -765,26 +763,26 @@ static void cherry_pick_list(struct commit_list *list, struct rev_info *revs)
 /* How many extra uninteresting commits we want to see.. */
 #define SLOP 5
 
-static int still_interesting(struct commit_list *src, unsigned long date, int slop)
+static int still_interesting(struct commit_queue *q, unsigned long date, int slop)
 {
 	/*
 	 * No source list at all? We're definitely done..
 	 */
-	if (!src)
+	if (!q->nr)
 		return 0;
 
 	/*
 	 * Does the destination list contain entries with a date
 	 * before the source list? Definitely _not_ done.
 	 */
-	if (date < src->item->date)
+	if (date < q->commits[0]->date)
 		return SLOP;
 
 	/*
 	 * Does the source list still have interesting commits in
 	 * it? Definitely not done..
 	 */
-	if (!everybody_uninteresting(src))
+	if (!everybody_uninteresting(q))
 		return SLOP;
 
 	/* Ok, we're closing in.. */
@@ -903,10 +901,10 @@ static int limit_list(struct rev_info *revs)
 {
 	int slop = SLOP;
 	unsigned long date = ~0ul;
-	struct commit_list *list = revs->commits;
 	struct commit_list *newlist = NULL;
 	struct commit_list **p = &newlist;
 	struct commit_list *bottom = NULL;
+	struct commit *commit;
 
 	if (revs->ancestry_path) {
 		bottom = collect_bottom_commits(revs);
@@ -914,28 +912,23 @@ static int limit_list(struct rev_info *revs)
 			die("--ancestry-path given but there are no bottom commits");
 	}
 
-	while (list) {
-		struct commit_list *entry = list;
-		struct commit *commit = list->item;
+	while ((commit = commit_queue_pop(&revs->queue))) {
 		struct object *obj = &commit->object;
-
-		list = list->next;
-		free(entry);
 
 		if (revs->max_age != -1 && (commit->date < revs->max_age))
 			obj->flags |= UNINTERESTING;
-		if (add_parents_to_list(revs, commit, &list, NULL) < 0)
+		if (add_parents_to_queue(revs, commit, &revs->queue) < 0)
 			return -1;
 		if (obj->flags & UNINTERESTING) {
 			mark_parents_uninteresting(commit);
-			if (revs->show_all)
-				p = &commit_list_insert(commit, p)->next;
-			slop = still_interesting(list, date, slop);
+			/* if (revs->show_all) */
+			/* 	p = &commit_list_insert(commit, p)->next; */
+			slop = still_interesting(&revs->queue, date, slop);
 			if (slop)
 				continue;
 			/* If showing all, add the whole pending list to the end */
-			if (revs->show_all)
-				*p = list;
+			/* if (revs->show_all) */
+			/* 	*p = list; */
 			break;
 		}
 		if (revs->min_age != -1 && (commit->date > revs->min_age))
