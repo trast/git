@@ -2161,12 +2161,17 @@ int prepare_revision_walk(struct rev_info *revs)
 	revs->pending.alloc = 0;
 	revs->pending.objects = NULL;
 	commit_queue_init(&revs->queue, revs->lifo ? NULL : commit_compare_by_date);
+	commit_queue_init(&revs->uninteresting, commit_compare_by_generation);
+
 	while (--nr >= 0) {
 		struct commit *commit = handle_commit(revs, e->item, e->name);
 		if (commit) {
 			if (!(commit->object.flags & SEEN)) {
 				commit->object.flags |= SEEN;
-				commit_queue_push(&revs->queue, commit);
+				if (commit->object.flags & UNINTERESTING)
+					commit_queue_push(&revs->uninteresting, commit);
+				else
+					commit_queue_push(&revs->queue, commit);
 			}
 		}
 		e++;
