@@ -1000,6 +1000,19 @@ static int inline_callback(const struct option *opt, const char *arg, int unset)
 	return 0;
 }
 
+static int inline_single_callback(const struct option *opt, const char *arg, int unset)
+{
+	struct rev_info *rev = (struct rev_info *)opt->value;
+	rev->mime_boundary = NULL;
+	rev->inline_single = 1;
+
+	/* defeat configured format.attach, format.thread, etc. */
+	free(default_attach);
+	default_attach = NULL;
+	thread = 0;
+	return 0;
+}
+
 static int header_callback(const struct option *opt, const char *arg, int unset)
 {
 	if (unset) {
@@ -1149,6 +1162,10 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 			    PARSE_OPT_OPTARG, thread_callback },
 		OPT_STRING(0, "signature", &signature, N_("signature"),
 			    N_("add a signature")),
+		{ OPTION_CALLBACK, 0, "inline-single", &rev, NULL,
+		  N_("single patch appendable to the end of an e-mail body"),
+		  PARSE_OPT_NOARG | PARSE_OPT_NONEG,
+		  inline_single_callback },
 		OPT_BOOLEAN(0, "quiet", &quiet,
 			    N_("don't print the patch filenames")),
 		OPT_END()
@@ -1184,6 +1201,17 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 			     builtin_format_patch_usage,
 			     PARSE_OPT_KEEP_ARGV0 | PARSE_OPT_KEEP_UNKNOWN |
 			     PARSE_OPT_KEEP_DASHDASH);
+
+	/* Set defaults and check incompatible options */
+	if (rev.inline_single) {
+		use_stdout = 1;
+		if (cover_letter)
+			die(_("inline-single and cover-letter are incompatible."));
+		if (thread)
+			die(_("inline-single and thread are incompatible."));
+		if (output_directory)
+			die(_("inline-single and output-directory are incompatible."));
+	}
 
 	if (0 < reroll_count) {
 		struct strbuf sprefix = STRBUF_INIT;
@@ -1373,6 +1401,10 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 		list[nr - 1] = commit;
 	}
 	total = nr;
+
+	if (rev.inline_single && total != 1)
+		die(_("inline-single is only for a single commit"));
+
 	if (!keep_subject && auto_number && total > 1)
 		numbered = 1;
 	if (numbered)
