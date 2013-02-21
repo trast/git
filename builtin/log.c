@@ -983,7 +983,7 @@ static int attach_callback(const struct option *opt, const char *arg, int unset)
 		rev->mime_boundary = arg;
 	else
 		rev->mime_boundary = git_version_string;
-	rev->no_inline = unset ? 0 : 1;
+	rev->disposition_attachment = unset ? 0 : 1;
 	return 0;
 }
 
@@ -996,7 +996,7 @@ static int inline_callback(const struct option *opt, const char *arg, int unset)
 		rev->mime_boundary = arg;
 	else
 		rev->mime_boundary = git_version_string;
-	rev->no_inline = 0;
+	rev->disposition_attachment = 0;
 	return 0;
 }
 
@@ -1172,7 +1172,7 @@ int cmd_format_patch(int argc, const char **argv, const char *prefix)
 
 	if (default_attach) {
 		rev.mime_boundary = default_attach;
-		rev.no_inline = 1;
+		rev.disposition_attachment = 1;
 	}
 
 	/*
