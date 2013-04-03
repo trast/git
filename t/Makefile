@@ -78,7 +78,7 @@ gitweb-test:
 	$(MAKE) $(TGITWEB)
 
 valgrind:
-	$(MAKE) GIT_TEST_OPTS="$(GIT_TEST_OPTS) --valgrind"
+	$(MAKE) GIT_TEST_OPTS="$(GIT_TEST_OPTS) --valgrind=memcheck-fast"
 
 perf:
 	$(MAKE) -C perf/ all
