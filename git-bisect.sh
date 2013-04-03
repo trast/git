@@ -26,9 +26,12 @@ git bisect run <cmd>...
 
 Please use "git help bisect" to get the full man page.'
 
+SUBDIRECTORY_OK=t
 OPTIONS_SPEC=
 . git-sh-setup
 . git-sh-i18n
+
+cd_to_toplevel
 
 _x40='[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
 _x40="$_x40$_x40$_x40$_x40$_x40$_x40$_x40$_x40"
