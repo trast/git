@@ -1704,8 +1704,14 @@ proc parsecommit {id contents listed} {
 	set comment $newcomment
     }
     set hasnote [string first "\nNotes:\n" $contents]
+    set diff ""
+    set i [string first "\ndiff" $comment]
+    if {$i >= 0} {
+	set diff [string range $comment $i end]
+	set comment [string range $comment 0 $i]
+    }
     set commitinfo($id) [list $headline $auname $audate \
-			     $comname $comdate $comment $hasnote]
+			     $comname $comdate $comment $hasnote $diff]
 }
 
 proc getcommit {id} {
