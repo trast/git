@@ -242,6 +242,24 @@ proc parseviewargs {n arglist} {
 		set filtered 1
 		lappend glflags $arg
 	    }
+	    "-L" {
+		# Line-log with unstuck argument
+		#
+		# Line-log is a subset of the history, and diffs must
+		# be read as part of the log output
+		set filtered 1
+		set vinlinediff($n) 1
+		set allknown 0
+		lappend glflags $arg
+		set nextisval 1
+	    }
+	    "-L*" {
+		# Line-log with stuck argument
+		set filtered 1
+		set vinlinediff($n) 1
+		set allknown 0
+		lappend glflags $arg
+	    }
 	    "-n" {
 		# This appears to be the only one that has a value as a
 		# separate word following it
