@@ -212,6 +212,24 @@ test_expect_success 'submodule add with ./, /.. and // in path' '
 	test_cmp empty untracked
 '
 
+test_expect_success 'submodule add in subdir' '
+	echo "refs/heads/master" >expect &&
+	>empty &&
+
+	mkdir addtest/sub &&
+	(
+		cd addtest/sub &&
+		git submodule add "$submodurl" ../realsubmod3 &&
+		git submodule init
+	) &&
+
+	rm -f heads head untracked &&
+	inspect addtest/realsubmod3 ../.. &&
+	test_cmp expect heads &&
+	test_cmp expect head &&
+	test_cmp empty untracked
+'
+
 test_expect_success 'setup - add an example entry to .gitmodules' '
 	GIT_CONFIG=.gitmodules \
 	git config submodule.example.url git://example.com/init.git
@@ -316,6 +334,15 @@ test_expect_success 'update should work when path is an empty dir' '
 
 test_expect_success 'status should be "up-to-date" after update' '
 	git submodule status >list &&
+	grep "^ $rev1" list
+'
+
+test_expect_success 'status works correctly from a subdirectory' '
+	mkdir sub &&
+	(
+		cd sub &&
+		git submodule status >../list
+	) &&
 	grep "^ $rev1" list
 '
 
