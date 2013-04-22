@@ -63,7 +63,7 @@ static void output_exclude(const char *path, struct exclude *exclude)
 	}
 }
 
-static int check_ignore(struct path_exclude_check *check,
+static int check_ignore(struct dir_struct *dir,
 			const char *prefix, const char **pathspec)
 {
 	const char *path, *full_path;
@@ -91,8 +91,7 @@ static int check_ignore(struct path_exclude_check *check,
 		die_if_path_beyond_symlink(full_path, prefix);
 		exclude = NULL;
 		if (!seen[i]) {
-			exclude = last_exclude_matching_path(check, full_path,
-							     -1, &dtype);
+			exclude = last_exclude_matching(dir, full_path, &dtype);
 		}
 		if (!quiet && (exclude || show_non_matching))
 			output_exclude(path, exclude);
@@ -104,7 +103,7 @@ static int check_ignore(struct path_exclude_check *check,
 	return num_ignored;
 }
 
-static int check_ignore_stdin_paths(struct path_exclude_check *check, const char *prefix)
+static int check_ignore_stdin_paths(struct dir_struct *dir, const char *prefix)
 {
 	struct strbuf buf, nbuf;
 	char *pathspec[2] = { NULL, NULL };
@@ -121,7 +120,7 @@ static int check_ignore_stdin_paths(struct path_exclude_check *check, const char
 			strbuf_swap(&buf, &nbuf);
 		}
 		pathspec[0] = buf.buf;
-		num_ignored += check_ignore(check, prefix, (const char **)pathspec);
+		num_ignored += check_ignore(dir, prefix, (const char **)pathspec);
 		maybe_flush_or_die(stdout, "check-ignore to stdout");
 	}
 	strbuf_release(&buf);
@@ -133,7 +132,6 @@ int cmd_check_ignore(int argc, const char **argv, const char *prefix)
 {
 	int num_ignored;
 	struct dir_struct dir;
-	struct path_exclude_check check;
 
 	git_config(git_default_config, NULL);
 
@@ -163,19 +161,16 @@ int cmd_check_ignore(int argc, const char **argv, const char *prefix)
 		die(_("index file corrupt"));
 
 	memset(&dir, 0, sizeof(dir));
-	dir.flags |= DIR_COLLECT_IGNORED;
 	setup_standard_excludes(&dir);
 
-	path_exclude_check_init(&check, &dir);
 	if (stdin_paths) {
-		num_ignored = check_ignore_stdin_paths(&check, prefix);
+		num_ignored = check_ignore_stdin_paths(&dir, prefix);
 	} else {
-		num_ignored = check_ignore(&check, prefix, argv);
+		num_ignored = check_ignore(&dir, prefix, argv);
 		maybe_flush_or_die(stdout, "ignore to stdout");
 	}
 
 	clear_directory(&dir);
-	path_exclude_check_clear(&check);
 
 	return !num_ignored;
 }
