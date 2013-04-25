@@ -127,7 +127,7 @@ relative_path ()
 	do
 		case "$target" in
 		"$curdir/"*)
-			target=${target#$curdir/}
+			target=${target#"$curdir"/}
 			break
 			;;
 		esac
