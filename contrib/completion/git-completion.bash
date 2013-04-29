@@ -1811,12 +1811,20 @@ __git_config_get_set_variables ()
 _git_config ()
 {
 	case "$prev" in
-	branch.*.remote)
+	branch.*.remote|branch.*.pushremote)
 		__gitcomp_nl "$(__git_remotes)"
 		return
 		;;
 	branch.*.merge)
 		__gitcomp_nl "$(__git_refs)"
+		return
+		;;
+	branch.*.rebase)
+		__gitcomp "false true"
+		return
+		;;
+	remote.pushdefault)
+		__gitcomp_nl "$(__git_remotes)"
 		return
 		;;
 	remote.*.fetch)
@@ -1856,6 +1864,10 @@ _git_config ()
 			normal black red green yellow blue magenta cyan white
 			bold dim ul blink reverse
 			"
+		return
+		;;
+	diff.submodule)
+		__gitcomp "log short"
 		return
 		;;
 	help.format)
@@ -1899,7 +1911,7 @@ _git_config ()
 		;;
 	branch.*.*)
 		local pfx="${cur%.*}." cur_="${cur##*.}"
-		__gitcomp "remote merge mergeoptions rebase" "$pfx" "$cur_"
+		__gitcomp "remote pushremote merge mergeoptions rebase" "$pfx" "$cur_"
 		return
 		;;
 	branch.*)
@@ -2052,13 +2064,14 @@ _git_config ()
 		core.whitespace
 		core.worktree
 		diff.autorefreshindex
-		diff.statGraphWidth
 		diff.external
 		diff.ignoreSubmodules
 		diff.mnemonicprefix
 		diff.noprefix
 		diff.renameLimit
 		diff.renames
+		diff.statGraphWidth
+		diff.submodule
 		diff.suppressBlankEmpty
 		diff.tool
 		diff.wordRegex
@@ -2193,6 +2206,7 @@ _git_config ()
 		receive.fsckObjects
 		receive.unpackLimit
 		receive.updateserverinfo
+		remote.pushdefault
 		remotes.
 		repack.usedeltabaseoffset
 		rerere.autoupdate
