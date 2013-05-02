@@ -5,12 +5,7 @@
 #include "commit.h"
 #include "tag.h"
 
-struct obj_hash_ent {
-	struct object *obj;
-	unsigned long sha1prefix;
-};
-
-static struct obj_hash_ent *obj_hash;
+static struct object **obj_hash;
 static int nr_objs, obj_hash_size;
 
 unsigned int get_max_object_index(void)
@@ -20,7 +15,7 @@ unsigned int get_max_object_index(void)
 
 struct object *get_indexed_object(unsigned int idx)
 {
-	return obj_hash[idx].obj;
+	return obj_hash[idx];
 }
 
 static const char *object_type_strings[] = {
@@ -48,52 +43,43 @@ int type_from_string(const char *str)
 	die("invalid object type \"%s\"", str);
 }
 
-static unsigned long hash_sha1(const unsigned char *sha1)
+static unsigned int hash_obj(struct object *obj, unsigned int n)
 {
-	unsigned long sha1prefix;
-	memcpy(&sha1prefix, sha1, sizeof(unsigned long));
-	return sha1prefix;
+	unsigned int hash;
+	memcpy(&hash, obj->sha1, sizeof(unsigned int));
+	return hash % n;
 }
 
-static unsigned long hash_obj(struct object *obj)
+static void insert_obj_hash(struct object *obj, struct object **hash, unsigned int size)
 {
-	return hash_sha1(obj->sha1);
-}
+	unsigned int j = hash_obj(obj, size);
 
-static void insert_obj_hash_1(struct object *obj, struct obj_hash_ent *hash, unsigned int size,
-			      unsigned long sha1prefix)
-{
-	unsigned int j = (unsigned int) sha1prefix % size;
-
-	while (hash[j].obj) {
+	while (hash[j]) {
 		j++;
 		if (j >= size)
 			j = 0;
 	}
-	hash[j].obj = obj;
-	hash[j].sha1prefix = sha1prefix;
+	hash[j] = obj;
 }
 
-static void insert_obj_hash(struct object *obj, struct obj_hash_ent *table, unsigned int size)
+static unsigned int hashtable_index(const unsigned char *sha1)
 {
-	unsigned long sha1prefix = hash_obj(obj);
-	insert_obj_hash_1(obj, table, size, sha1prefix);
+	unsigned int i;
+	memcpy(&i, sha1, sizeof(unsigned int));
+	return i % obj_hash_size;
 }
 
 struct object *lookup_object(const unsigned char *sha1)
 {
-	unsigned long sha1prefix;
 	unsigned int i;
 	struct object *obj;
 
 	if (!obj_hash)
 		return NULL;
 
-	sha1prefix = hash_sha1(sha1);
-	i = (unsigned int) sha1prefix % obj_hash_size;
-	while ((obj = obj_hash[i].obj) != NULL) {
-		if (obj_hash[i].sha1prefix == sha1prefix
-		    && !hashcmp(sha1, obj->sha1))
+	i = hashtable_index(sha1);
+	while ((obj = obj_hash[i]) != NULL) {
+		if (!hashcmp(sha1, obj->sha1))
 			break;
 		i++;
 		if (i == obj_hash_size)
@@ -106,14 +92,14 @@ static void grow_object_hash(void)
 {
 	int i;
 	int new_hash_size = obj_hash_size < 32 ? 32 : 2 * obj_hash_size;
-	struct obj_hash_ent *new_hash;
+	struct object **new_hash;
 
-	new_hash = xcalloc(new_hash_size, sizeof(struct obj_hash_ent));
+	new_hash = xcalloc(new_hash_size, sizeof(struct object *));
 	for (i = 0; i < obj_hash_size; i++) {
-		struct object *obj = obj_hash[i].obj;
+		struct object *obj = obj_hash[i];
 		if (!obj)
 			continue;
-		insert_obj_hash_1(obj, new_hash, new_hash_size, obj_hash[i].sha1prefix);
+		insert_obj_hash(obj, new_hash, new_hash_size);
 	}
 	free(obj_hash);
 	obj_hash = new_hash;
@@ -316,7 +302,7 @@ void clear_object_flags(unsigned flags)
 	int i;
 
 	for (i=0; i < obj_hash_size; i++) {
-		struct object *obj = obj_hash[i].obj;
+		struct object *obj = obj_hash[i];
 		if (obj)
 			obj->flags &= ~flags;
 	}
