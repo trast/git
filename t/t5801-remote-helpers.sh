@@ -151,6 +151,25 @@ test_expect_success 'push ref with existing object' '
 	compare_refs local dup server dup
 '
 
+test_expect_success GPG 'push signed tag' '
+	(cd local &&
+	git checkout master &&
+	git tag -s -m signed-tag signed-tag &&
+	git push origin signed-tag
+	) &&
+	compare_refs local signed-tag^{} server signed-tag^{} &&
+	test_must_fail compare_refs local signed-tag server signed-tag
+'
+
+test_expect_success GPG 'push signed tag with signed-tags capability' '
+	(cd local &&
+	git checkout master &&
+	git tag -s -m signed-tag signed-tag-2 &&
+	GIT_REMOTE_TESTGIT_SIGNED_TAGS=1 git push origin signed-tag-2
+	) &&
+	compare_refs local signed-tag-2 server signed-tag-2
+'
+
 test_expect_success 'push update refs' '
 	(cd local &&
 	git checkout -b update master &&
@@ -181,39 +200,6 @@ test_expect_success 'proper failure checks for pushing' '
 	cat error &&
 	grep -q "Reading from helper .git-remote-testgit. failed" error
 	)
-'
-
-test_expect_success 'push messages' '
-	(cd local &&
-	git checkout -b new_branch master &&
-	echo new >>file &&
-	git commit -a -m new &&
-	git push origin new_branch &&
-	git fetch origin &&
-	echo new >>file &&
-	git commit -a -m new &&
-	git push origin new_branch 2> msg &&
-	! grep "\[new branch\]" msg
-	)
-'
-
-test_expect_success GPG 'push signed tag' '
-	(cd local &&
-	git checkout master &&
-	git tag -s -m signed-tag signed-tag &&
-	git push origin signed-tag
-	) &&
-	compare_refs local signed-tag^{} server signed-tag^{} &&
-	test_must_fail compare_refs local signed-tag server signed-tag
-'
-
-test_expect_success GPG 'push signed tag with signed-tags capability' '
-	(cd local &&
-	git checkout master &&
-	git tag -s -m signed-tag signed-tag-2 &&
-	GIT_REMOTE_TESTGIT_SIGNED_TAGS=1 git push origin signed-tag-2
-	) &&
-	compare_refs local signed-tag-2 server signed-tag-2
 '
 
 test_expect_success 'push messages' '
