@@ -86,6 +86,11 @@ struct object *lookup_object(const unsigned char *sha1)
 			i = 0;
 	}
 	if (obj && i != first) {
+		/*
+		 * Move object to where we started to look for it so
+		 * that we do not need to walk the hash table the next
+		 * time we look for it.
+		 */
 		struct object *tmp = obj_hash[i];
 		obj_hash[i] = obj_hash[first];
 		obj_hash[first] = tmp;
