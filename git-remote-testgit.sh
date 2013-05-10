@@ -104,7 +104,12 @@ do
 			*" $ref $a "*)
 				continue ;;	# unchanged
 			esac
-			echo "ok $ref"
+			if test -z "$GIT_REMOTE_TESTGIT_PUSH_ERROR"
+			then
+				echo "ok $ref"
+			else
+				echo "error $ref $GIT_REMOTE_TESTGIT_PUSH_ERROR"
+			fi
 		done
 
 		echo

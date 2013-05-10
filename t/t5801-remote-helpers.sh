@@ -175,8 +175,22 @@ test_expect_success 'push update refs' '
 	git checkout -b update master &&
 	echo update >>file &&
 	git commit -a -m update &&
-	git push origin update
+	git push origin update &&
 	git rev-parse --verify remotes/origin/update >expect &&
+	git rev-parse --verify testgit/origin/heads/update >actual &&
+	test_cmp expect actual
+	)
+'
+
+test_expect_success 'push update refs failure' '
+	(cd local &&
+	git checkout update &&
+	echo "update fail" >>file &&
+	git commit -a -m "update fail" &&
+	git rev-parse --verify testgit/origin/heads/update >expect &&
+	GIT_REMOTE_TESTGIT_PUSH_ERROR="non-fast forward" &&
+	export GIT_REMOTE_TESTGIT_PUSH_ERROR &&
+	test_expect_code 1 git push origin update &&
 	git rev-parse --verify testgit/origin/heads/update >actual &&
 	test_cmp expect actual
 	)
