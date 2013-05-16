@@ -201,6 +201,9 @@ do
 	--valgrind=*)
 		valgrind=$(expr "z$1" : 'z[^=]*=\(.*\)')
 		shift ;;
+	--valgrind-only=*)
+		valgrind_only=$(expr "z$1" : 'z[^=]*=\(.*\)')
+		shift ;;
 	--tee)
 		shift ;; # was handled already
 	--root=*)
@@ -211,7 +214,14 @@ do
 	esac
 done
 
-test -n "$valgrind" && verbose=t
+if test -n "$valgrind_only"
+then
+	test -z "$valgrind" && valgrind=memcheck
+	test -z "$verbose" && verbose_only="$valgrind_only"
+elif test -n "$valgrind"
+then
+	verbose=t
+fi
 
 if test -n "$color"
 then
@@ -355,8 +365,23 @@ toggle_verbose () {
 	fi
 }
 
+toggle_valgrind () {
+	test -z "$GIT_VALGRIND" && return
+	if test -z "$valgrind_only"
+	then
+		GIT_VALGRIND_ENABLED=t
+		return
+	fi
+	GIT_VALGRIND_ENABLED=
+	if match_pattern_list $test_count $valgrind_only
+	then
+		GIT_VALGRIND_ENABLED=t
+	fi
+}
+
 setup_test_eval () {
 	setup_malloc_check
+	toggle_valgrind
 	toggle_verbose
 }
 teardown_test_eval () {
@@ -571,6 +596,9 @@ then
 	export GIT_VALGRIND
 	GIT_VALGRIND_MODE="$valgrind"
 	export GIT_VALGRIND_MODE
+	GIT_VALGRIND_ENABLED=t
+	test -n "$valgrind_only" && GIT_VALGRIND_ENABLED=
+	export GIT_VALGRIND_ENABLED
 elif test -n "$GIT_TEST_INSTALLED"
 then
 	GIT_EXEC_PATH=$($GIT_TEST_INSTALLED/git --exec-path)  ||
