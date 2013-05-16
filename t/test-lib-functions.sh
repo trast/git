@@ -358,6 +358,7 @@ test_expect_failure () {
 		fi
 	fi
 	echo >&3 ""
+	test_teardown_hook_
 }
 
 test_expect_success () {
@@ -376,6 +377,7 @@ test_expect_success () {
 		fi
 	fi
 	echo >&3 ""
+	test_teardown_hook_
 }
 
 # test_external runs external test scripts that provide continuous

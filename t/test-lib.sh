@@ -184,6 +184,9 @@ do
 		help=t; shift ;;
 	-v|--v|--ve|--ver|--verb|--verbo|--verbos|--verbose)
 		verbose=t; shift ;;
+	--verbose-only=*)
+		verbose_only=$(expr "z$1" : 'z[^=]*=\(.*\)')
+		shift ;;
 	-q|--q|--qu|--qui|--quie|--quiet)
 		# Ignore --quiet under a TAP::Harness. Saying how many tests
 		# passed without the ok/not ok details is always an error.
@@ -342,6 +345,44 @@ match_pattern_list () {
 	return 1
 }
 
+maybe_teardown_verbose () {
+	test -z "$verbose_only" && return
+	exec 4>/dev/null 3>/dev/null
+	verbose=
+}
+
+last_verbose=t
+maybe_setup_verbose () {
+	test -z "$verbose_only" && return
+	if match_pattern_list $test_count $verbose_only
+	then
+		exec 4>&2 3>&1
+		# Emit a delimiting blank line when going from
+		# non-verbose to verbose.  Within verbose mode the
+		# delimiter is printed by test_expect_*.  The choice
+		# of the initial $last_verbose is such that before
+		# test 1, we do not print it.
+		test -z "$last_verbose" && echo >&3 ""
+		verbose=t
+	else
+		exec 4>/dev/null 3>/dev/null
+		verbose=
+	fi
+	last_verbose=$verbose
+}
+
+# Called from test_skip after it has incremented $test_count.  This
+# means it runs before any test-specific code and output.
+test_setup_hook_ () {
+	maybe_setup_verbose
+}
+
+# Called at the end of test_expect_*.  This means it runs after all
+# test-specific code and output.
+test_teardown_hook_ () {
+	maybe_teardown_verbose
+}
+
 test_eval_ () {
 	# This is a separate function because some tests use
 	# "return" to end a test_expect_success block early.
@@ -358,9 +399,7 @@ test_run_ () {
 
 	if test -z "$immediate" || test $eval_ret = 0 || test -n "$expecting_failure"
 	then
-		setup_malloc_check
 		test_eval_ "$test_cleanup"
-		teardown_malloc_check
 	fi
 	if test "$verbose" = "t" && test -n "$HARNESS_ACTIVE"
 	then
@@ -372,6 +411,7 @@ test_run_ () {
 test_skip () {
 	test_count=$(($test_count+1))
 	to_skip=
+	test_setup_hook_
 	if match_pattern_list $this_test.$test_count $GIT_SKIP_TESTS
 	then
 		to_skip=t
