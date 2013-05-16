@@ -184,6 +184,9 @@ do
 		help=t; shift ;;
 	-v|--v|--ve|--ver|--verb|--verbo|--verbos|--verbose)
 		verbose=t; shift ;;
+	--verbose-only=*)
+		verbose_only=$(expr "z$1" : 'z[^=]*=\(.*\)')
+		shift ;;
 	-q|--q|--qu|--qui|--quie|--quiet)
 		# Ignore --quiet under a TAP::Harness. Saying how many tests
 		# passed without the ok/not ok details is always an error.
@@ -342,6 +345,24 @@ match_pattern_list () {
 	return 1
 }
 
+toggle_verbose () {
+	test -z "$verbose_only" && return
+	if match_pattern_list $test_count $verbose_only
+	then
+		exec 4>&2 3>&1
+	else
+		exec 4>/dev/null 3>/dev/null
+	fi
+}
+
+setup_test_eval () {
+	setup_malloc_check
+	toggle_verbose
+}
+teardown_test_eval () {
+	teardown_malloc_check
+}
+
 test_eval_ () {
 	# This is a separate function because some tests use
 	# "return" to end a test_expect_success block early.
@@ -351,16 +372,16 @@ test_eval_ () {
 test_run_ () {
 	test_cleanup=:
 	expecting_failure=$2
-	setup_malloc_check
+	setup_test_eval
 	test_eval_ "$1"
 	eval_ret=$?
-	teardown_malloc_check
+	teardown_test_eval
 
 	if test -z "$immediate" || test $eval_ret = 0 || test -n "$expecting_failure"
 	then
-		setup_malloc_check
+		setup_test_eval
 		test_eval_ "$test_cleanup"
-		teardown_malloc_check
+		teardown_test_eval
 	fi
 	if test "$verbose" = "t" && test -n "$HARNESS_ACTIVE"
 	then
