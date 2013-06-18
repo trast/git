@@ -47,8 +47,10 @@ test_expect_failure 'pretend we have a known breakage' '
 
 run_sub_test_lib_test () {
 	name="$1" descr="$2" # stdin is the body of the test code
+	shift 2
 	mkdir "$name" &&
 	(
+		unset HARNESS_ACTIVE
 		cd "$name" &&
 		cat >"$name.sh" <<-EOF &&
 		#!$SHELL_PATH
@@ -65,7 +67,7 @@ run_sub_test_lib_test () {
 		cat >>"$name.sh" &&
 		chmod +x "$name.sh" &&
 		export TEST_DIRECTORY &&
-		./"$name.sh" >out 2>err
+		./"$name.sh" "$@" >out 2>err
 	)
 }
 
@@ -214,6 +216,30 @@ test_expect_success 'pretend we have a mix of all possible results' "
 	> 1..10
 	EOF
 "
+
+test_expect_success 'test --verbose' '
+	test_must_fail run_sub_test_lib_test \
+		test-verbose "test verbose" --verbose <<-\EOF &&
+	test_expect_success "passing test" true
+	test_expect_success "test with output" "echo foo"
+	test_expect_success "failing test" false
+	test_done
+	EOF
+	check_sub_test_lib_test test-verbose <<-\EOF
+	> expecting success: true
+	> ok 1 - passing test
+	>
+	> expecting success: echo foo
+	> foo
+	>
+	> ok 2 - test with output
+	> expecting success: false
+	> not ok 3 - failing test
+	> #	false
+	> # failed 1 among 3 test(s)
+	> 1..3
+	EOF
+'
 
 test_set_prereq HAVEIT
 haveit=no
