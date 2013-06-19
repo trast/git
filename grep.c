@@ -3,6 +3,9 @@
 #include "userdiff.h"
 #include "xdiff-interface.h"
 
+git_repository *git2_repo;
+git_odb *git2_odb;
+
 static int grep_source_load(struct grep_source *gs);
 static int grep_source_is_binary(struct grep_source *gs);
 
@@ -1571,6 +1574,7 @@ void grep_source_init(struct grep_source *gs, enum grep_source_type type,
 	gs->buf = NULL;
 	gs->size = 0;
 	gs->driver = NULL;
+	gs->odbobj = NULL;
 
 	switch (type) {
 	case GREP_SOURCE_FILE:
@@ -1600,10 +1604,15 @@ void grep_source_clear_data(struct grep_source *gs)
 {
 	switch (gs->type) {
 	case GREP_SOURCE_FILE:
-	case GREP_SOURCE_SHA1:
 		free(gs->buf);
 		gs->buf = NULL;
 		gs->size = 0;
+		break;
+	case GREP_SOURCE_SHA1:
+		gs->buf = NULL;
+		gs->size = 0;
+		git_odb_object_free(gs->odbobj);
+		gs->odbobj = NULL;
 		break;
 	case GREP_SOURCE_BUF:
 		/* leave user-provided buf intact */
@@ -1613,16 +1622,14 @@ void grep_source_clear_data(struct grep_source *gs)
 
 static int grep_source_load_sha1(struct grep_source *gs)
 {
-	enum object_type type;
-
-	grep_read_lock();
-	gs->buf = read_sha1_file(gs->identifier, &type, &gs->size);
-	grep_read_unlock();
-
-	if (!gs->buf)
-		return error(_("'%s': unable to read %s"),
+	if (git_odb_read(&gs->odbobj, git2_odb, gs->identifier))
+		return error(_("libgit2: '%s': unable to read %s"),
 			     gs->name,
 			     sha1_to_hex(gs->identifier));
+
+	gs->buf = git_odb_object_data(gs->odbobj);
+	gs->size = git_odb_object_size(gs->odbobj);
+
 	return 0;
 }
 

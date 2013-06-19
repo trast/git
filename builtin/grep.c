@@ -757,6 +757,8 @@ int cmd_grep(int argc, const char **argv, const char *prefix)
 	git_config(grep_cmd_config, NULL);
 	grep_init(&opt, prefix);
 
+	git_threads_init();
+
 	/*
 	 * If there is no -- then the paths must exist in the working
 	 * tree.  If there is no explicit pattern specified with -e or
@@ -773,9 +775,21 @@ int cmd_grep(int argc, const char **argv, const char *prefix)
 			     PARSE_OPT_NO_INTERNAL_HELP);
 	grep_commit_pattern_type(pattern_type_arg, &opt);
 
-	if (use_index && !startup_info->have_repository)
+	if (use_index && !startup_info->have_repository) {
 		/* die the same way as if we did it at the beginning */
 		setup_git_directory();
+	}
+
+	if (use_index) {
+		const char *dir = getenv(GIT_DIR_ENVIRONMENT);
+		if (!dir)
+			dir = ".";
+		if (git_repository_open_ext(&git2_repo, dir, 0, NULL))
+			die("libgit2 could not setup repository (GITDIR=%s)",
+			    dir);
+		if (git_repository_odb(&git2_odb, git2_repo))
+			die("libgit2 could not open ODB");
+	}
 
 	/*
 	 * skip a -- separator; we know it cannot be
@@ -834,7 +848,7 @@ int cmd_grep(int argc, const char **argv, const char *prefix)
 	}
 
 #ifndef NO_PTHREADS
-	if (list.nr || cached || online_cpus() == 1)
+	if (list.nr || online_cpus() == 1)
 		use_threads = 0;
 #else
 	use_threads = 0;

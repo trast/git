@@ -10,6 +10,7 @@ typedef int pcre_extra;
 #include "kwset.h"
 #include "thread-utils.h"
 #include "userdiff.h"
+#include "git2_for_git.h"
 
 enum grep_pat_token {
 	GREP_PATTERN,
@@ -167,6 +168,9 @@ struct grep_source {
 
 	char *path; /* for attribute lookups */
 	struct userdiff_driver *driver;
+
+	/* reading from libgit2: we need to free the object at the end */
+	git_odb_object *odbobj;
 };
 
 void grep_source_init(struct grep_source *gs, enum grep_source_type type,
@@ -207,5 +211,8 @@ static inline void grep_read_unlock(void)
 #define grep_read_lock()
 #define grep_read_unlock()
 #endif
+
+extern git_repository *git2_repo;
+extern git_odb *git2_odb;
 
 #endif
