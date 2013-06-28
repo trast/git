@@ -38,6 +38,7 @@ static int quiet;
 static int prefer_ofs_delta = 1;
 static int auto_update_server_info;
 static int auto_gc = 1;
+static const char *replica_dir;
 static const char *head_name;
 static void *head_name_to_free;
 static int sent_capabilities;
@@ -117,6 +118,11 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 	if (strcmp(var, "receive.autogc") == 0) {
 		auto_gc = git_config_bool(var, value);
 		return 0;
+	}
+
+	if (strcmp(var, "replica.directory") == 0) {
+		git_config_string(&replica_dir, var, value);
+		fprintf(stderr, "got replica_dir = %s", replica_dir);
 	}
 
 	return git_default_config(var, value, cb);
@@ -856,9 +862,10 @@ static const char *unpack(int err_fd)
 			return NULL;
 		return "unpack-objects abnormal exit";
 	} else {
-		const char *keeper[7];
+		const char *keeper[8];
 		int s, status, i = 0;
 		char keep_arg[256];
+		char replica_arg[PATH_MAX+32];
 		struct child_process ip;
 
 		s = sprintf(keep_arg, "--keep=receive-pack %"PRIuMAX" on ", (uintmax_t) getpid());
@@ -870,6 +877,12 @@ static const char *unpack(int err_fd)
 		if (fsck_objects)
 			keeper[i++] = "--strict";
 		keeper[i++] = "--fix-thin";
+		if (replica_dir) {
+			if (strlen(replica_dir) > sizeof(replica_arg)-1)
+				die("BUG: need a bigger replica_arg");
+			s = sprintf(replica_arg, "--replica-dir=%s", replica_dir);
+			keeper[i++] = replica_arg;
+		}
 		keeper[i++] = hdr_arg;
 		keeper[i++] = keep_arg;
 		keeper[i++] = NULL;

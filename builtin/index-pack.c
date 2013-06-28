@@ -11,6 +11,7 @@
 #include "exec_cmd.h"
 #include "streaming.h"
 #include "thread-utils.h"
+#include "run-command.h"
 
 static const char index_pack_usage[] =
 "git index-pack [-v] [-o <index-file>] [--keep | --keep=<msg>] [--verify] [--strict] (<pack-file> | --stdin [--fix-thin] [<pack-file>])";
@@ -81,6 +82,9 @@ static int do_fsck_object;
 static int verbose;
 static int show_stat;
 static int check_self_contained_and_connected;
+static int replica_fd = -1;
+static const char *replica_dir;
+static struct child_process replica_process;
 
 static struct progress *progress;
 
@@ -220,12 +224,73 @@ static unsigned check_objects(void)
 }
 
 
+static void spawn_replica_index_pack(const char *dir)
+{
+	int i;
+	int s;
+	char keep_arg[256];
+	const char **env;
+
+	s = sprintf(keep_arg, "--keep=replica index-pack %"PRIuMAX" on ", (uintmax_t) getpid());
+	if (gethostname(keep_arg + s, sizeof(keep_arg) - s))
+		strcpy(keep_arg + s, "localhost");
+
+	replica_process.git_cmd = 1;
+	replica_process.in = -1;
+	/* FIXME: redirect .err to a log */
+	replica_process.out = -1;
+	env = xmalloc(2*sizeof(char *));
+	env[0] = "GIT_DIR";
+	env[1] = NULL;
+	replica_process.env = env;
+	replica_process.dir = xstrdup(dir);
+	replica_process.argv = xmalloc(6*sizeof(char *));
+
+	i = 0;
+	replica_process.argv[i++] = "index-pack";
+	replica_process.argv[i++] = "--fix-thin";
+	replica_process.argv[i++] = "--stdin";
+	replica_process.argv[i++] = "--strict";
+	replica_process.argv[i++] = xstrdup(keep_arg);
+	replica_process.argv[i++] = NULL;
+
+	if (start_command(&replica_process))
+		die("failed to start replicating index-pack");
+
+	replica_fd = replica_process.in;
+}
+
+static void finish_replica_index_pack(void)
+{
+	char *lockfile = index_pack_lockfile(replica_process.out);
+	char orig[PATH_MAX];
+	char dest[PATH_MAX];
+	int len;
+	int ret;
+	if (!lockfile)
+		die("BUG: index-pack didn't tell me what to keep");
+	sprintf(orig, "%s/%s", replica_dir, lockfile);
+	sprintf(dest, "%s/%s.replica", replica_dir, lockfile);
+	if (rename(orig, dest) < 0)
+		die_errno("renaming replica .keep (%s -> %s) failed",
+			  orig, dest);
+	if ((ret = finish_command(&replica_process)))
+		die("replica index-pack returned %d", ret);
+}
+
+static void flush_replica(void)
+{
+	if (replica_fd >= 0)
+		write_or_die(replica_fd, input_buffer, input_offset);
+}
+
 /* Discard current buffer used content. */
 static void flush(void)
 {
 	if (input_offset) {
 		if (output_fd >= 0)
 			write_or_die(output_fd, input_buffer, input_offset);
+		flush_replica();
 		git_SHA1_Update(&input_ctx, input_buffer, input_offset);
 		memmove(input_buffer, input_buffer + input_offset, input_len);
 		input_offset = 0;
@@ -251,7 +316,7 @@ static void *fill(int min)
 				sizeof(input_buffer) - input_len);
 		if (ret <= 0) {
 			if (!ret)
-				die(_("early EOF"));
+				die(_("early EOF while reading %d bytes"), min);
 			die_errno(_("read error on input"));
 		}
 		input_len += ret;
@@ -1035,6 +1100,15 @@ static void parse_pack_objects(unsigned char *sha1)
 		die(_("pack is corrupted (SHA1 mismatch)"));
 	use(20);
 
+	/* feed the final sha1 to the replica and close the stream */
+	flush_replica();
+	if (replica_fd >= 0) {
+		if (close(replica_fd) < 0)
+			die_errno("close(replica_fd) failed");
+		replica_fd = -1;
+		finish_replica_index_pack();
+	}
+
 	/* If input_fd is a file, we should have reached its end now. */
 	if (fstat(input_fd, &st))
 		die_errno(_("cannot fstat packfile"));
@@ -1574,6 +1648,8 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 					opts.off32_limit = strtoul(c+1, &c, 0);
 				if (*c || opts.off32_limit & 0x80000000)
 					die(_("bad %s"), arg);
+			} else if (!prefixcmp(arg, "--replica-dir=")) {
+				replica_dir = arg + 14;
 			} else
 				usage(index_pack_usage);
 			continue;
@@ -1625,6 +1701,9 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 			nr_threads = 3;
 	}
 #endif
+
+	if (replica_dir)
+		spawn_replica_index_pack(replica_dir);
 
 	curr_pack = open_pack_file(pack_name);
 	parse_pack_header();
