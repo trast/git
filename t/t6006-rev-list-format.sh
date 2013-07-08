@@ -9,8 +9,9 @@ test_description='git rev-list --pretty=format test'
 . "$TEST_DIRECTORY"/lib-terminal.sh
 
 test_tick
-# String "added" in German (translated with Google Translate), encoded in UTF-8,
-# used as a commit log message below.
+# String "added" in German
+# (translated with Google Translate),
+# encoded in UTF-8, used as a commit log message below.
 added=$(printf "added (hinzugef\303\274gt) foo")
 added_iso88591=$(echo "$added" | iconv -f utf-8 -t iso8859-1)
 # same but "changed"
@@ -35,26 +36,13 @@ test_expect_success 'setup' '
 	git config --unset i18n.commitEncoding
 '
 
-# usage: test_format [failure] name format_string <expected_output
+# usage: test_format name format_string [failure] <expected_output
 test_format () {
-	must_fail=0
-	# if parameters count is more than 2 then test must fail
-	if test $# -gt 2
-	then
-		must_fail=1
-		# remove first parameter which is flag for test failure
-		shift
-	fi
 	cat >expect.$1
-	name="format $1"
-	command="git rev-list --pretty=format:'$2' master >output.$1 &&
-		test_cmp expect.$1 output.$1"
-	if test $must_fail -eq 1
-	then
-		test_expect_failure "$name" "$command"
-	else
-		test_expect_success "$name" "$command"
-	fi
+	test_expect_${3:-success} "format $1" "
+		git rev-list --pretty=format:'$2' master >output.$1 &&
+		test_cmp expect.$1 output.$1
+	"
 }
 
 # Feed to --format to provide predictable colored sequences.
@@ -230,12 +218,7 @@ test_expect_success 'setup complex body' '
 	git config i18n.commitencoding iso8859-1 &&
 	echo change2 >foo && git commit -a -F commit-msg &&
 	head3=$(git rev-parse --verify HEAD) &&
-	head3_short=$(git rev-parse --short $head3) &&
-	# unset commit encoding config
-	# otherwise %e does not print encoding value
-	# and following test fails
-	git config --unset i18n.commitEncoding
-
+	head3_short=$(git rev-parse --short $head3)
 '
 
 test_format complex-encoding %e <<EOF
@@ -251,20 +234,40 @@ test_format complex-subject %s <<EOF
 commit $head3
 Test printing of complex bodies
 commit $head2
+$changed_iso88591
+commit $head1
+$added_iso88591
+EOF
+
+test_expect_success 'prepare expected messages (for test %b)' '
+	cat <<-EOF >expected.utf-8 &&
+	commit $head3
+	This commit message is much longer than the others,
+	and it will be encoded in iso8859-1. We should therefore
+	include an iso8859 character: ¡bueno!
+
+	commit $head2
+	commit $head1
+	EOF
+	iconv -f utf-8 -t iso8859-1 expected.utf-8 >expected.iso8859-1
+'
+
+test_format complex-body %b <expected.iso8859-1
+
+# Git uses i18n.commitEncoding if no i18n.logOutputEncoding set
+# so unset i18n.commitEncoding to test encoding conversion
+git config --unset i18n.commitEncoding
+
+test_format complex-subject-commitencoding-unset %s <<EOF
+commit $head3
+Test printing of complex bodies
+commit $head2
 $changed
 commit $head1
 $added
 EOF
 
-test_format complex-body %b <<EOF
-commit $head3
-This commit message is much longer than the others,
-and it will be encoded in iso8859-1. We should therefore
-include an iso8859 character: ¡bueno!
-
-commit $head2
-commit $head1
-EOF
+test_format complex-body-commitencoding-unset %b <expected.utf-8
 
 test_expect_success '%x00 shows NUL' '
 	echo  >expect commit $head3 &&
