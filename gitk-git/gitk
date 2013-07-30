@@ -222,6 +222,13 @@ proc parseviewargs {n arglist} {
 		# These are harmless, and some are even useful
 		lappend glflags $arg
 	    }
+	    "-S" - "-G" {
+		# -S and -G (handled below) can also be used with
+		# unstuck arguments
+		set filtered 1
+		lappend glflags $arg
+		set nextisval 1
+	    }
 	    "--diff-filter=*" - "--no-merges" - "--unpacked" -
 	    "--max-count=*" - "--skip=*" - "--since=*" - "--after=*" -
 	    "--until=*" - "--before=*" - "--max-age=*" - "--min-age=*" -
