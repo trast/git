@@ -155,7 +155,11 @@ test_perf () {
 	test "$#" = 2 ||
 	error "bug in the test script: not 2 or 3 parameters to test-expect-success"
 	export test_prereq
-	if ! test_skip "$@"
+	skipping=
+	test_skip "$@" && skipping=t
+	test -z "$GIT_PERF_TEST_ONLY" ||
+	test "$GIT_PERF_TEST_ONLY" = $this_test.$test_count || skipping=t
+	if test -z "$skipping"
 	then
 		base=$(basename "$0" .sh)
 		echo "$test_count" >>"$perf_results_dir"/$base.subtests
@@ -165,7 +169,7 @@ test_perf () {
 		else
 			echo "perf $test_count - $1:"
 		fi
-		for i in $(test_seq 1 $GIT_PERF_REPEAT_COUNT); do
+		for i in $(test_seq 0 $GIT_PERF_REPEAT_COUNT); do
 			say >&3 "running: $2"
 			if test_run_perf_ "$2"
 			then
@@ -186,7 +190,9 @@ test_perf () {
 			test_ok_ "$1"
 		fi
 		base="$perf_results_dir"/"$perf_results_prefix$(basename "$0" .sh)"."$test_count"
-		"$TEST_DIRECTORY"/perf/min_time.perl test_time.* >"$base".times
+		rm test_time.0
+		perl -pe 's/(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)/((defined $1?$1:0)*60+$2)*60+$3/e' \
+			test_time.* >"$base".times
 	fi
 	test_finish_
 }
