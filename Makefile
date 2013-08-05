@@ -1182,6 +1182,9 @@ ifdef NEEDS_SSL_WITH_CRYPTO
 else
 	LIB_4_CRYPTO = $(OPENSSL_LINK) -lcrypto
 endif
+ifdef APPLE_COMMON_CRYPTO
+	LIB_4_CRYPTO += -framework Security -framework CoreFoundation
+endif
 endif
 ifdef NEEDS_LIBICONV
 	ifdef ICONVDIR
@@ -1413,7 +1416,6 @@ ifdef PPC_SHA1
 	LIB_H += ppc/sha1.h
 else
 ifdef APPLE_COMMON_CRYPTO
-	LIB_4_CRYPTO += -framework Security -framework CoreFoundation
 	COMPAT_CFLAGS += -DCOMMON_DIGEST_FOR_OPENSSL
 	SHA1_HEADER = <CommonCrypto/CommonDigest.h>
 else
