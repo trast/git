@@ -128,6 +128,13 @@ struct expand_data {
 	int mark_query;
 
 	/*
+	 * Whether to split the input on whitespace before feeding it to
+	 * get_sha1; this is decided during the mark_query phase based on
+	 * whether we have a %(rest) token in our format.
+	 */
+	int split_on_whitespace;
+
+	/*
 	 * After a mark_query run, this object_info is set up to be
 	 * passed to sha1_object_info_extended. It will point to the data
 	 * elements above, so you can retrieve the response from there.
@@ -165,7 +172,9 @@ static void expand_atom(struct strbuf *sb, const char *atom, int len,
 		else
 			strbuf_addf(sb, "%lu", data->disk_size);
 	} else if (is_atom("rest", atom, len)) {
-		if (!data->mark_query && data->rest)
+		if (data->mark_query)
+			data->split_on_whitespace = 1;
+		else if (data->rest)
 			strbuf_addstr(sb, data->rest);
 	} else
 		die("unknown format element: %.*s", len, atom);
@@ -277,19 +286,21 @@ static int batch_objects(struct batch_options *opt)
 	warn_on_object_refname_ambiguity = 0;
 
 	while (strbuf_getline(&buf, stdin, '\n') != EOF) {
-		char *p;
 		int error;
 
-		/*
-		 * Split at first whitespace, tying off the beginning of the
-		 * string and saving the remainder (or NULL) in data.rest.
-		 */
-		p = strpbrk(buf.buf, " \t");
-		if (p) {
-			while (*p && strchr(" \t", *p))
-				*p++ = '\0';
+		if (data.split_on_whitespace) {
+			/*
+			 * Split at first whitespace, tying off the beginning
+			 * of the string and saving the remainder (or NULL) in
+			 * data.rest.
+			 */
+			char *p = strpbrk(buf.buf, " \t");
+			if (p) {
+				while (*p && strchr(" \t", *p))
+					*p++ = '\0';
+			}
+			data.rest = p;
 		}
-		data.rest = p;
 
 		error = batch_one_object(buf.buf, opt, &data);
 		if (error)

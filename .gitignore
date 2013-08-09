@@ -202,7 +202,7 @@
 /test-string-list
 /test-subprocess
 /test-svn-fe
-/test-url-normalize
+/test-urlmatch-normalization
 /test-wildmatch
 /common-cmds.h
 *.tar.gz

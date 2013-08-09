@@ -59,6 +59,21 @@ static void print_error_files(struct string_list *files_list,
 	}
 }
 
+static void error_removing_concrete_submodules(struct string_list *files, int *errs)
+{
+	print_error_files(files,
+			  Q_("the following submodule (or one of its nested "
+			     "submodules)\n"
+			     "uses a .git directory:",
+			     "the following submodules (or one of its nested "
+			     "submodules)\n"
+			     "use a .git directory:", files->nr),
+			  _("\n(use 'rm -rf' if you really want to remove "
+			    "it including all of its history)"),
+			  errs);
+	string_list_clear(files, 0);
+}
+
 static int check_submodules_use_gitfiles(void)
 {
 	int i;
@@ -87,16 +102,8 @@ static int check_submodules_use_gitfiles(void)
 		if (!submodule_uses_gitfile(name))
 			string_list_append(&files, name);
 	}
-	print_error_files(&files,
-			  Q_("the following submodule (or one of its nested "
-			     "submodules)\n uses a .git directory:",
-			     "the following submodules (or one of its nested "
-			     "submodules)\n use a .git directory:",
-			     files.nr),
-			  _("\n(use 'rm -rf' if you really want to remove "
-			    "it including all of its history)"),
-			  &errs);
-	string_list_clear(&files, 0);
+
+	error_removing_concrete_submodules(&files, &errs);
 
 	return errs;
 }
@@ -238,17 +245,9 @@ static int check_local_mod(unsigned char *head, int index_only)
 			    " or -f to force removal)"),
 			  &errs);
 	string_list_clear(&files_cached, 0);
-	print_error_files(&files_submodule,
-			  Q_("the following submodule (or one of its nested "
-			     "submodule)\nuses a .git directory:",
-			     "the following submodules (or one of its nested "
-			     "submodule)\nuse a .git directory:",
-			     files_submodule.nr),
-			  _("\n(use 'rm -rf' if you really "
-			    "want to remove it including all "
-			    "of its history)"),
-			  &errs);
-	string_list_clear(&files_submodule, 0);
+
+	error_removing_concrete_submodules(&files_submodule, &errs);
+
 	print_error_files(&files_local,
 			  Q_("the following file has local modifications:",
 			     "the following files have local modifications:",
@@ -269,10 +268,10 @@ static int ignore_unmatch = 0;
 static struct option builtin_rm_options[] = {
 	OPT__DRY_RUN(&show_only, N_("dry run")),
 	OPT__QUIET(&quiet, N_("do not list removed files")),
-	OPT_BOOLEAN( 0 , "cached",         &index_only, N_("only remove from the index")),
+	OPT_BOOL( 0 , "cached",         &index_only, N_("only remove from the index")),
 	OPT__FORCE(&force, N_("override the up-to-date check")),
-	OPT_BOOLEAN('r', NULL,             &recursive,  N_("allow recursive removal")),
-	OPT_BOOLEAN( 0 , "ignore-unmatch", &ignore_unmatch,
+	OPT_BOOL('r', NULL,             &recursive,  N_("allow recursive removal")),
+	OPT_BOOL( 0 , "ignore-unmatch", &ignore_unmatch,
 				N_("exit with a zero status even if nothing matched")),
 	OPT_END(),
 };
@@ -283,6 +282,7 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 	struct pathspec pathspec;
 	char *seen;
 
+	gitmodules_config();
 	git_config(git_default_config, NULL);
 
 	argc = parse_options(argc, argv, prefix, builtin_rm_options,
@@ -324,7 +324,10 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 			continue;
 		ALLOC_GROW(list.entry, list.nr + 1, list.alloc);
 		list.entry[list.nr].name = ce->name;
-		list.entry[list.nr++].is_submodule = S_ISGITLINK(ce->ce_mode);
+		list.entry[list.nr].is_submodule = S_ISGITLINK(ce->ce_mode);
+		if (list.entry[list.nr++].is_submodule &&
+		    !is_staging_gitmodules_ok())
+			die (_("Please, stage your changes to .gitmodules or stash them to proceed"));
 	}
 
 	if (pathspec.nr) {
@@ -396,13 +399,15 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 	 * in the middle)
 	 */
 	if (!index_only) {
-		int removed = 0;
+		int removed = 0, gitmodules_modified = 0;
 		for (i = 0; i < list.nr; i++) {
 			const char *path = list.entry[i].name;
 			if (list.entry[i].is_submodule) {
 				if (is_empty_dir(path)) {
 					if (!rmdir(path)) {
 						removed = 1;
+						if (!remove_path_from_gitmodules(path))
+							gitmodules_modified = 1;
 						continue;
 					}
 				} else {
@@ -410,9 +415,14 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 					strbuf_addstr(&buf, path);
 					if (!remove_dir_recursively(&buf, 0)) {
 						removed = 1;
+						if (!remove_path_from_gitmodules(path))
+							gitmodules_modified = 1;
 						strbuf_release(&buf);
 						continue;
-					}
+					} else if (!file_exists(path))
+						/* Submodule was removed by user */
+						if (!remove_path_from_gitmodules(path))
+							gitmodules_modified = 1;
 					strbuf_release(&buf);
 					/* Fallthrough and let remove_path() fail. */
 				}
@@ -424,6 +434,8 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 			if (!removed)
 				die_errno("git rm: '%s'", path);
 		}
+		if (gitmodules_modified)
+			stage_updated_gitmodules();
 	}
 
 	if (active_cache_changed) {
