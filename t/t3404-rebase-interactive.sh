@@ -987,7 +987,7 @@ test_expect_success 'short SHA-1 setup' '
 	test_commit --notick "collide3 115158b5" collide collide3 collide3
 '
 
-test_expect_failure 'short SHA-1 collide' '
+test_expect_success 'short SHA-1 collide' '
 	test_when_finished "reset_rebase && git checkout master" &&
 	git checkout collide &&
 	FAKE_COMMIT_MESSAGE="collide2 815200e" \
