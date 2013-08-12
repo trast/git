@@ -949,6 +949,7 @@ test_expect_success 'rebase -i respects core.commentchar' '
 	sed -e "2,\$s/^/\\\\/" "$1" >"$1.tmp" &&
 	mv "$1.tmp" "$1"
 	EOF
+	test_when_finished "set_fake_editor" &&
 	test_set_editor "$(pwd)/remove-all-but-first.sh" &&
 	git rebase -i B &&
 	test B = $(git cat-file commit HEAD^ | sed -ne \$p)
