@@ -949,6 +949,7 @@ test_expect_success 'rebase -i respects core.commentchar' '
 	sed -e "2,\$s/^/\\\\/" "$1" >"$1.tmp" &&
 	mv "$1.tmp" "$1"
 	EOF
+	test_when_finished "set_fake_editor" &&
 	test_set_editor "$(pwd)/remove-all-but-first.sh" &&
 	git rebase -i B &&
 	test B = $(git cat-file commit HEAD^ | sed -ne \$p)
@@ -987,6 +988,23 @@ test_expect_success 'rebase -i error on commits with \ in message' '
 	test_must_fail git rebase -i HEAD^ --onto HEAD^^ 2>error
 	) &&
 	test_expect_code 1 grep  "	emp" error
+'
+
+test_expect_success 'short SHA-1 setup' '
+	test_when_finished "git checkout master" &&
+	git checkout --orphan collide &&
+	git rm -rf . &&
+	unset test_tick &&
+	test_commit collide1 collide &&
+	test_commit --notick collide2 collide &&
+	test_commit --notick "collide3 115158b5" collide collide3 collide3
+'
+
+test_expect_success 'short SHA-1 collide' '
+	test_when_finished "reset_rebase && git checkout master" &&
+	git checkout collide &&
+	FAKE_COMMIT_MESSAGE="collide2 815200e" \
+	FAKE_LINES="reword 1 2" git rebase -i HEAD~2
 '
 
 test_done
