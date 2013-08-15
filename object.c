@@ -71,7 +71,7 @@ static unsigned int hashtable_index(const unsigned char *sha1)
 
 struct object *lookup_object(const unsigned char *sha1)
 {
-	unsigned int i, first;
+	unsigned int i, first, middle;
 	struct object *obj;
 
 	if (!obj_hash)
@@ -90,9 +90,27 @@ struct object *lookup_object(const unsigned char *sha1)
 		 * Move object to where we started to look for it so
 		 * that we do not need to walk the hash table the next
 		 * time we look for it.
+		 * However, we don't want to penalize the the object being
+		 * moved from the first position, so divide the penalty to
+		 * two different objects.
 		 */
+
+		/*
+		 * First make sure i > first, so the middle is really
+		 * in between the i and first object
+		 */
+		if (i < first)
+			i += obj_hash_size;
+
+		middle = (i + first) / 2;
+		if (i >= obj_hash_size)
+			i -= obj_hash_size;
+		if (middle >= obj_hash_size)
+			middle -= obj_hash_size;
+
 		struct object *tmp = obj_hash[i];
-		obj_hash[i] = obj_hash[first];
+		obj_hash[i] = obj_hash[middle];
+		obj_hash[middle] = obj_hash[first];
 		obj_hash[first] = tmp;
 	}
 	return obj;
